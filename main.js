@@ -6,6 +6,15 @@ const roleRemoteHarvester = require('roles.remoteHarvester');
 const roomManager = require('managers.roomManager');
 const spawnManager = require('managers.spawnManager');
 
+// Move roles outside the loop for performance
+const roles = {
+    harvester: roleHarvester,
+    builder: roleBuilder,
+    upgrader: roleUpgrader,
+    scout: roleScout,
+    remoteHarvester: roleRemoteHarvester
+};
+
 module.exports.loop = function () {
     for (let name in Memory.creeps) {
         if (!Game.creeps[name]) {
@@ -27,13 +36,6 @@ module.exports.loop = function () {
 
     for (const name in Game.creeps) {
         const creep = Game.creeps[name];
-        const roles = {
-            harvester: roleHarvester,
-            builder: roleBuilder,
-            upgrader: roleUpgrader,
-            scout: roleScout,
-            remoteHarvester: roleRemoteHarvester
-        };
         const role = roles[creep.memory.role];
         if (role) role.run(creep);
     }
