@@ -1,8 +1,8 @@
 // Import role modules
-var roleHarvester = require('role.harvester');
-var roleUpgrader = require('role.upgrader');
-var roleBuilder = require('role.builder');
-var roleHauler = require('role.hauler');
+var roleHarvester = require('harvester');
+var roleUpgrader = require('upgrader');
+var roleBuilder = require('builder');
+var roleHauler = require('hauler');
 
 module.exports.loop = function () {
     // Clear memory of dead creeps
