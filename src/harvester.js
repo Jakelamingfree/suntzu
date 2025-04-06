@@ -5,11 +5,32 @@ var roleHarvester = {
         if(!creep.memory.sourceId) {
             // Find available sources and distribute harvesters
             var sources = creep.room.find(FIND_SOURCES);
-            var sourceIndex = creep.memory.number % sources.length;
-            creep.memory.sourceId = sources[sourceIndex].id;
+            if(sources.length > 0) {
+                // Make sure creep.memory.number exists
+                if(creep.memory.number === undefined) {
+                    creep.memory.number = 0;
+                }
+                var sourceIndex = creep.memory.number % sources.length;
+                creep.memory.sourceId = sources[sourceIndex].id;
+            } else {
+                // No sources found, this shouldn't happen in normal gameplay
+                // but let's handle it gracefully
+                console.log(creep.name + ' could not find any sources!');
+                // Move to the center of the room if we can't find sources
+                creep.moveTo(new RoomPosition(25, 25, creep.room.name));
+                return; // Exit the function early
+            }
         }
         
         var source = Game.getObjectById(creep.memory.sourceId);
+        
+        // Make sure the source exists
+        if(!source) {
+            // The source might have been incorrectly stored or no longer exists
+            // Reset the sourceId so it gets reassigned next tick
+            creep.memory.sourceId = null;
+            return; // Exit the function early
+        }
         
         // If there's no container near the source yet, we need to build one
         var container = this.findSourceContainer(source);
