@@ -1,6 +1,13 @@
 var roleHarvester = {
     /** @param {Creep} creep **/
     run: function(creep) {
+        // Debug visualization - show source assignment
+        if(creep.memory.sourceId) {
+            var source = Game.getObjectById(creep.memory.sourceId);
+            if(source) {
+                creep.room.visual.line(creep.pos, source.pos, {color: '#ffaa00', lineStyle: 'dashed'});
+            }
+        }
         // Assign a source if not already assigned
         if(!creep.memory.sourceId) {
             // Find available sources and distribute harvesters
@@ -54,8 +61,12 @@ var roleHarvester = {
             
             // Still need to harvest and deliver until container is built
             if(creep.store.getFreeCapacity() > 0) {
-                if(creep.harvest(source) == ERR_NOT_IN_RANGE) {
+                const harvestResult = creep.harvest(source);
+                if(harvestResult == ERR_NOT_IN_RANGE) {
+                    creep.say('⛏️ moving');
                     creep.moveTo(source, {visualizePathStyle: {stroke: '#ffaa00'}});
+                } else if(harvestResult !== OK) {
+                    creep.say('⛏️ ' + harvestResult);
                 }
             } else {
                 // Find targets to deliver energy to
@@ -79,12 +90,21 @@ var roleHarvester = {
             
             // If not in position, move to optimal harvesting position
             if(!this.isInHarvestPosition(creep, source, container)) {
+                // Debug when moving
+                creep.say('⛏️ to pos');
                 this.moveToHarvestPosition(creep, source, container);
                 return;
             }
             
             // In position, harvest and transfer to container
-            creep.harvest(source);
+            const harvestResult = creep.harvest(source);
+            if(harvestResult === ERR_NOT_IN_RANGE) {
+                creep.say('⛏️ too far');
+                creep.moveTo(source, {visualizePathStyle: {stroke: '#ffaa00'}});
+                return;
+            } else if(harvestResult !== OK) {
+                creep.say('⛏️ ' + harvestResult);
+            }
             
             // If container is not full, transfer energy
             if(container.store.getFreeCapacity(RESOURCE_ENERGY) > 0 && creep.store.getUsedCapacity() > 0) {
