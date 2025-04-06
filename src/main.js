@@ -5,6 +5,12 @@ var roleBuilder = require('builder');
 var roleHauler = require('hauler');
 
 module.exports.loop = function () {
+    Game.spawns['Spawn1'].room.visual.text(
+        'Tick: ' + Game.time,
+        25, 25, 
+        {color: 'white', font: 0.8, stroke: 'black', strokeWidth: 0.5}
+    );
+    
     // CPU Diagnostics
     const startCpu = Game.cpu.getUsed();
     console.log(`Tick ${Game.time} starting. CPU: ${startCpu.toFixed(2)}/${Game.cpu.limit}, Bucket: ${Game.cpu.bucket}`);
