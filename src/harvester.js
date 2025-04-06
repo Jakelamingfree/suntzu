@@ -2,9 +2,12 @@ var roleHarvester = {
 
     /** @param {Creep} creep **/
     run: function(creep) {
+        console.log(creep.name + ' is running harvester logic');
         if(creep.store.getFreeCapacity() > 0) {
             var sources = creep.room.find(FIND_SOURCES);
+            console.log(creep.name + ' found ' + sources.length + ' sources');
             if(creep.harvest(sources[0]) == ERR_NOT_IN_RANGE) {
+                console.log(creep.name + ' moving to source');
                 creep.moveTo(sources[0], {visualizePathStyle: {stroke: '#ffaa00'}});
             }
         }
