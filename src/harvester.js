@@ -93,6 +93,7 @@ var roleHarvester = {
     
     findBuildablePositionsNear: function(source) {
         var positions = [];
+        var swampPositions = [];
         var room = source.room;
         
         // Check all adjacent tiles
@@ -109,21 +110,35 @@ var roleHarvester = {
                 
                 var pos = new RoomPosition(x, y, room.name);
                 
-                // Check if position is valid for building (not a wall, swamp is ok)
+                // Check if position is valid for building
                 var terrain = Game.map.getRoomTerrain(room.name);
-                if(terrain.get(x, y) !== TERRAIN_MASK_WALL) {
+                var terrainType = terrain.get(x, y);
+                
+                if(terrainType !== TERRAIN_MASK_WALL) {
                     // Make sure there are no other structures or construction sites here
                     var structures = pos.lookFor(LOOK_STRUCTURES);
                     var constructionSites = pos.lookFor(LOOK_CONSTRUCTION_SITES);
+                    var roads = pos.lookFor(LOOK_STRUCTURES).filter(s => s.structureType === STRUCTURE_ROAD);
                     
-                    if(structures.length == 0 && constructionSites.length == 0) {
-                        positions.push(pos);
+                    // Look for existing roads - these are ideal spots for containers
+                    if(roads.length > 0) {
+                        // Road exists here - highest priority
+                        return [pos]; // Return immediately if we find a road
+                    } else if(structures.length == 0 && constructionSites.length == 0) {
+                        if(terrainType === TERRAIN_MASK_SWAMP) {
+                            // It's a swamp - add to secondary list
+                            swampPositions.push(pos);
+                        } else {
+                            // It's plain - add to primary list
+                            positions.push(pos);
+                        }
                     }
                 }
             }
         }
         
-        return positions;
+        // Prefer plain positions over swamp positions
+        return positions.length > 0 ? positions : swampPositions;
     }
 };
 

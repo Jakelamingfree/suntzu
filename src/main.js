@@ -21,8 +21,38 @@ module.exports.loop = function () {
 
     // Define minimum populations based on colony stage
     var sources = Game.spawns['Spawn1'].room.find(FIND_SOURCES);
-    var minHarvesters = sources.length; // One harvester per source
-    var minHaulers = Math.max(1, Math.floor(minHarvesters * 1.5)); // 1.5 haulers per harvester
+    // For each source, allocate optimal number of harvesters based on open spaces
+    var minHarvesters = 0;
+    for(var i = 0; i < sources.length; i++) {
+        var source = sources[i];
+        // Count free spaces around this source
+        var terrain = Game.map.getRoomTerrain(source.room.name);
+        var freeSpaces = 0;
+        
+        for(var dx = -1; dx <= 1; dx++) {
+            for(var dy = -1; dy <= 1; dy++) {
+                // Skip the source itself
+                if(dx == 0 && dy == 0) continue;
+                
+                var x = source.pos.x + dx;
+                var y = source.pos.y + dy;
+                
+                // Make sure position is inside room bounds
+                if(x < 1 || x > 48 || y < 1 || y > 48) continue;
+                
+                // Count non-wall spaces
+                if(terrain.get(x, y) !== TERRAIN_MASK_WALL) {
+                    freeSpaces++;
+                }
+            }
+        }
+        
+        // Add harvesters for this source (minimum 1, maximum based on free spaces)
+        minHarvesters += Math.min(2, Math.max(1, freeSpaces));
+    }
+    
+    // Set hauler count based on harvester count
+    var minHaulers = Math.max(2, Math.ceil(minHarvesters * 1.5)); // 1.5 haulers per harvester, minimum 2
     var minUpgraders = 1;
     var minBuilders = 1;
 

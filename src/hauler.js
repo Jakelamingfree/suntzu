@@ -72,7 +72,23 @@ var roleHauler = {
         }
         else {
             // Not delivering, so collect energy
-            // First priority: Containers near sources
+            
+            // First priority: Ruins with energy (from the previous player)
+            var ruins = creep.room.find(FIND_RUINS, {
+                filter: (ruin) => ruin.store[RESOURCE_ENERGY] > 0
+            });
+            
+            if(ruins.length > 0) {
+                // Sort ruins by amount of energy
+                ruins.sort((a, b) => b.store[RESOURCE_ENERGY] - a.store[RESOURCE_ENERGY]);
+                
+                if(creep.withdraw(ruins[0], RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
+                    creep.moveTo(ruins[0], {visualizePathStyle: {stroke: '#ffaa00'}});
+                }
+                return;
+            }
+            
+            // Second priority: Containers near sources
             var containers = creep.room.find(FIND_STRUCTURES, {
                 filter: (structure) => {
                     return (
