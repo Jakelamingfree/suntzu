@@ -5,11 +5,22 @@ var roleBuilder = require('builder');
 var roleHauler = require('hauler');
 
 module.exports.loop = function () {
-    Game.spawns['Spawn1'].room.visual.text(
-        'Tick: ' + Game.time,
-        25, 25, 
-        {color: 'white', font: 0.8, stroke: 'black', strokeWidth: 0.5}
-    );
+    if (!Memory.lastTickTime) {
+        Memory.lastTickTime = Date.now();
+        Memory.lastTick = Game.time;
+    } else {
+        // Calculate real-world time between ticks
+        const realTimePassed = Date.now() - Memory.lastTickTime;
+        const ticksPassed = Game.time - Memory.lastTick;
+        
+        // If more than 5 seconds passed but only 1 tick, log it
+        if (realTimePassed > 5000 && ticksPassed == 1) {
+            console.log(`ALERT: ${realTimePassed}ms passed for 1 tick - POSSIBLE SERVER PAUSE`);
+        }
+        
+        Memory.lastTickTime = Date.now();
+        Memory.lastTick = Game.time;
+    }
     
     // CPU Diagnostics
     const startCpu = Game.cpu.getUsed();
