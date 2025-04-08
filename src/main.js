@@ -6,6 +6,66 @@ var roleHauler = require('hauler');
 var moveCoordinator = require('moveCoordinator');
 
 module.exports.loop = function () {
+    // Add this to the beginning of your main.js loop
+module.exports.loop = function() {
+    // EMERGENCY BOOTSTRAP CODE
+    console.log("Running emergency bootstrap mode");
+    
+    // Check if we have any creeps
+    var creepCount = Object.keys(Game.creeps).length;
+    console.log("Current creep count: " + creepCount);
+    
+    // Get the spawn
+    var spawn = Game.spawns['Spawn1'];
+    if(!spawn) {
+        console.log("ERROR: Cannot find Spawn1!");
+        return; // Exit immediately if spawn doesn't exist
+    }
+    
+    // Check spawn energy
+    console.log("Spawn energy: " + spawn.energy + "/" + spawn.energyCapacity);
+    
+    // If no creeps and enough energy, spawn a basic harvester with absolute minimum body
+    if(creepCount === 0 && spawn.energy >= 250 && !spawn.spawning) {
+        var name = 'EmergencyHarvester' + Game.time;
+        console.log("EMERGENCY: Attempting to spawn " + name);
+        var result = spawn.spawnCreep([WORK, CARRY, MOVE], name, {
+            memory: {
+                role: 'harvester',
+                emergency: true
+            }
+        });
+        console.log("Spawn result: " + result);
+    }
+    
+    // Run minimal logic for emergency creeps
+    for(var name in Game.creeps) {
+        var creep = Game.creeps[name];
+        
+        // Super simple emergency harvester behavior
+        if(creep.memory.emergency) {
+            if(creep.store.getFreeCapacity() > 0) {
+                // Find closest source
+                var source = creep.pos.findClosestByPath(FIND_SOURCES);
+                if(source) {
+                    if(creep.harvest(source) == ERR_NOT_IN_RANGE) {
+                        creep.moveTo(source, {visualizePathStyle: {stroke: '#ffaa00'}});
+                    }
+                }
+            }
+            else {
+                // Return to spawn
+                if(creep.transfer(spawn, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
+                    creep.moveTo(spawn, {visualizePathStyle: {stroke: '#ffffff'}});
+                }
+            }
+        }
+    }
+    
+    // YOUR REGULAR CODE BELOW
+    // ...
+}
+    
     // Initialize the movement coordinator at the start of each tick
     moveCoordinator.init();
     
