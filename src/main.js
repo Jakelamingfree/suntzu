@@ -255,6 +255,9 @@ function spawnCreep(spawn, role, energyAvailable) {
                 body = [WORK,WORK,CARRY,MOVE]; // 300 energy
             } else if(energyAvailable >= 250) {
                 body = [WORK,CARRY,MOVE,MOVE]; // 250 energy
+            } else {
+                // Minimum viable harvester
+                body = [WORK,CARRY,MOVE]; // 200 energy
             }
             
             name = 'Harvester' + Game.time;
@@ -272,6 +275,9 @@ function spawnCreep(spawn, role, energyAvailable) {
                 body = [CARRY,CARRY,CARRY,MOVE,MOVE,MOVE]; // 300 energy
             } else if(energyAvailable >= 200) {
                 body = [CARRY,CARRY,MOVE,MOVE]; // 200 energy
+            } else {
+                // Minimum viable hauler
+                body = [CARRY,MOVE]; // 100 energy
             }
             
             name = 'Hauler' + Game.time;
@@ -290,6 +296,9 @@ function spawnCreep(spawn, role, energyAvailable) {
                 body = [WORK,WORK,CARRY,MOVE]; // 300 energy
             } else if(energyAvailable >= 200) {
                 body = [WORK,CARRY,MOVE]; // 200 energy
+            } else {
+                // Minimum viable upgrader
+                body = [WORK,CARRY,MOVE]; // 200 energy
             }
             
             name = 'Upgrader' + Game.time;
@@ -306,6 +315,9 @@ function spawnCreep(spawn, role, energyAvailable) {
             } else if(energyAvailable >= 300) {
                 body = [WORK,WORK,CARRY,MOVE]; // 300 energy
             } else if(energyAvailable >= 200) {
+                body = [WORK,CARRY,MOVE]; // 200 energy
+            } else {
+                // Minimum viable builder
                 body = [WORK,CARRY,MOVE]; // 200 energy
             }
             
@@ -337,6 +349,9 @@ function spawnCreep(spawn, role, energyAvailable) {
                 body = [WORK,WORK,CARRY,CARRY,MOVE,MOVE,MOVE,MOVE]; // 450 energy
             } else if(energyAvailable >= 300) {
                 body = [WORK,WORK,CARRY,MOVE,MOVE]; // 300 energy
+            } else {
+                // Minimum viable remote harvester
+                body = [WORK,CARRY,MOVE,MOVE]; // 250 energy
             }
             
             name = 'RHarvest' + Game.time;
