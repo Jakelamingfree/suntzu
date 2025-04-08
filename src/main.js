@@ -1,375 +1,246 @@
-// Import roles
-var roleHarvester = require('harvester');
-var roleUpgrader = require('upgrader');
-var roleBuilder = require('builder');
-var roleHauler = require('hauler');
-var roleScout = require('scout');
-var roleRemoteHarvester = require('remoteHarvester');
-var moveCoordinator = require('moveCoordinator');
+// Simplified main.js - Focuses on reliability and basic colony functionality
 
-module.exports.loop = function () {
-    // Initialize the movement coordinator
-    moveCoordinator.init();
-    
-    // Memory cleanup - remove dead creeps
-    for(var name in Memory.creeps) {
-        if(!Game.creeps[name]) {
-            delete Memory.creeps[name];
-            console.log('Clearing non-existing creep memory:', name);
-        }
-    }
-
-    // Clean up old collection targets
-    if(Memory.collectionTargets) {
-        for(const id in Memory.collectionTargets) {
-            if(Game.time - Memory.collectionTargets[id].timestamp > 50) {
-                delete Memory.collectionTargets[id];
+module.exports.loop = function() {
+    try {
+        // Track execution with a heartbeat
+        if (!Memory.stats) Memory.stats = {};
+        Memory.stats.lastTick = Game.time;
+        
+        // Clean up memory of dead creeps
+        for(var name in Memory.creeps) {
+            if(!Game.creeps[name]) {
+                delete Memory.creeps[name];
+                console.log('Clearing non-existing creep memory:', name);
             }
         }
-    }
-    
-    // Clean up old delivery targets
-    if(Memory.deliveryTargets) {
-        for(const id in Memory.deliveryTargets) {
-            if(!Game.creeps[Memory.deliveryTargets[id]]) {
-                delete Memory.deliveryTargets[id];
+        
+        // Count creeps by role
+        var harvesters = _.filter(Game.creeps, (creep) => creep.memory.role == 'harvester');
+        var haulers = _.filter(Game.creeps, (creep) => creep.memory.role == 'hauler');
+        var upgraders = _.filter(Game.creeps, (creep) => creep.memory.role == 'upgrader');
+        var builders = _.filter(Game.creeps, (creep) => creep.memory.role == 'builder');
+        
+        // Log current population every 10 ticks to save CPU
+        if (Game.time % 10 === 0) {
+            console.log('Harvesters: ' + harvesters.length + 
+                        ', Haulers: ' + haulers.length + 
+                        ', Upgraders: ' + upgraders.length + 
+                        ', Builders: ' + builders.length);
+        }
+        
+        // Process each room we own
+        for(const roomName in Game.rooms) {
+            const room = Game.rooms[roomName];
+            
+            // Only process rooms we control
+            if(room.controller && room.controller.my) {
+                processRoom(room, {
+                    harvesters: harvesters.filter(c => c.memory.homeRoom === roomName).length,
+                    haulers: haulers.filter(c => c.memory.homeRoom === roomName).length,
+                    upgraders: upgraders.filter(c => c.memory.homeRoom === roomName).length,
+                    builders: builders.filter(c => c.memory.homeRoom === roomName).length
+                });
             }
         }
-    }
-
-    // Count creeps by role
-    var harvesters = _.filter(Game.creeps, (creep) => creep.memory.role == 'harvester');
-    var haulers = _.filter(Game.creeps, (creep) => creep.memory.role == 'hauler');
-    var upgraders = _.filter(Game.creeps, (creep) => creep.memory.role == 'upgrader');
-    var builders = _.filter(Game.creeps, (creep) => creep.memory.role == 'builder');
-    var scouts = _.filter(Game.creeps, (creep) => creep.memory.role == 'scout');
-    var remoteHarvesters = _.filter(Game.creeps, (creep) => creep.memory.role == 'remoteHarvester');
-
-    // Log current population
-    console.log('Harvesters: ' + harvesters.length + 
-                ', Haulers: ' + haulers.length + 
-                ', Upgraders: ' + upgraders.length + 
-                ', Builders: ' + builders.length +
-                ', Scouts: ' + scouts.length +
-                ', Remote Harvesters: ' + remoteHarvesters.length);
-
-    // Process each room we own
-    for(const roomName in Game.rooms) {
-        const room = Game.rooms[roomName];
         
-        // Only process rooms we control
-        if(room.controller && room.controller.my) {
-            processRoom(room);
-        }
-    }
-
-    // Run creep logic
-    for(var name in Game.creeps) {
-        var creep = Game.creeps[name];
-        
-        // Assign a unique number to creep if it doesn't have one
-        if(creep.memory.number === undefined) {
-            creep.memory.number = Game.time % 1000;
-        }
-        
-        // Run appropriate role logic
-        try {
-            switch(creep.memory.role) {
-                case 'harvester':
-                    roleHarvester.run(creep);
-                    break;
-                case 'hauler':
-                    roleHauler.run(creep);
-                    break;
-                case 'upgrader':
-                    roleUpgrader.run(creep);
-                    break;
-                case 'builder':
-                    roleBuilder.run(creep);
-                    break;
-                case 'scout':
-                    roleScout.run(creep);
-                    break;
-                case 'remoteHarvester':
-                    roleRemoteHarvester.run(creep);
-                    break;
-                default:
-                    console.log(`Unknown role for creep ${creep.name}: ${creep.memory.role}`);
+        // Run creep logic
+        for(var name in Game.creeps) {
+            var creep = Game.creeps[name];
+            
+            try {
+                switch(creep.memory.role) {
+                    case 'harvester':
+                        runHarvester(creep);
+                        break;
+                    case 'hauler':
+                        runHauler(creep);
+                        break;
+                    case 'upgrader':
+                        runUpgrader(creep);
+                        break;
+                    case 'builder':
+                        runBuilder(creep);
+                        break;
+                    default:
+                        console.log(`Unknown role for creep ${creep.name}: ${creep.memory.role}`);
+                }
+            } catch(creepError) {
+                console.log(`Error running creep ${creep.name}: ${creepError.stack || creepError}`);
             }
-        } catch(error) {
-            console.log(`Error running creep ${creep.name} with role ${creep.memory.role}: ${error}`);
         }
+        
+        // Track CPU usage
+        Memory.stats.cpu = {
+            used: Game.cpu.getUsed(),
+            limit: Game.cpu.limit,
+            bucket: Game.cpu.bucket
+        };
+        
+    } catch(error) {
+        // Global error handling
+        console.log(`CRITICAL ERROR in main loop: ${error.stack || error}`);
     }
 };
 
 /**
  * Process a room - handle spawning and defense
  */
-function processRoom(room) {
+function processRoom(room, counts) {
     // Get all spawns in this room
     const spawns = room.find(FIND_MY_SPAWNS);
     if(spawns.length === 0) return;
     
-    // Use the first spawn for now
+    // Use the first spawn
     const spawn = spawns[0];
     
-    // Skip if we're already spawning
+    // Skip if already spawning
     if(spawn.spawning) {
         displaySpawnInfo(spawn);
         return;
     }
     
-    // Check if we need to respond to hostiles
-    if(room.find(FIND_HOSTILE_CREEPS).length > 0) {
-        handleHostiles(room, spawn);
-        return;
+    // Check for hostiles
+    const hostiles = room.find(FIND_HOSTILE_CREEPS);
+    if(hostiles.length > 0) {
+        handleHostiles(room);
     }
     
-    // Count creeps by role for this room
-    var roomCreeps = _.filter(Game.creeps, (creep) => creep.memory.homeRoom == room.name);
-    var harvesters = _.filter(roomCreeps, (creep) => creep.memory.role == 'harvester');
-    var haulers = _.filter(roomCreeps, (creep) => creep.memory.role == 'hauler');
-    var upgraders = _.filter(roomCreeps, (creep) => creep.memory.role == 'upgrader');
-    var builders = _.filter(roomCreeps, (creep) => creep.memory.role == 'builder');
-    var scouts = _.filter(roomCreeps, (creep) => creep.memory.role == 'scout');
-    var remoteHarvesters = _.filter(roomCreeps, (creep) => creep.memory.role == 'remoteHarvester');
-    
-    // Count sources in room
+    // Count sources
     const sources = room.find(FIND_SOURCES);
     const constructionSites = room.find(FIND_CONSTRUCTION_SITES);
     
     // Determine what to spawn next
-    var nextRole = determineNextRole(room, {
-        harvesters: harvesters.length,
-        haulers: haulers.length,
-        upgraders: upgraders.length,
-        builders: builders.length,
-        scouts: scouts.length,
-        remoteHarvesters: remoteHarvesters.length,
-        sources: sources.length,
-        constructionSites: constructionSites.length
-    });
+    let nextRole = null;
     
-    console.log(`Room ${room.name} - Next role to spawn: ${nextRole}`);
-    
-    // Spawn the determined role
-    if(nextRole) {
-        var energyAvailable = room.energyAvailable;
-        spawnCreep(spawn, nextRole, energyAvailable);
-    }
-}
-
-/**
- * Determine which role to spawn next based on room state
- */
-function determineNextRole(room, counts) {
-    // Emergency recovery mode - if no harvesters or haulers, focus on them
+    // Emergency recovery - always maintain at least one harvester
     if(counts.harvesters === 0) {
-        return 'harvester';
+        nextRole = 'harvester';
     }
-    
-    if(counts.haulers === 0 && counts.harvesters > 0) {
-        return 'hauler';
+    // Then ensure we have haulers to move energy
+    else if(counts.haulers === 0 && counts.harvesters > 0) {
+        nextRole = 'hauler';
     }
-    
-    // Ensure enough harvesters - 1 per source
-    if(counts.harvesters < counts.sources) {
-        return 'harvester';
+    // Ensure at least one harvester per source
+    else if(counts.harvesters < sources.length) {
+        nextRole = 'harvester';
     }
-    
-    // Ensure enough haulers - 1.5 per source rounded up
-    const desiredHaulers = Math.ceil(counts.sources * 1.5);
-    if(counts.haulers < desiredHaulers) {
-        return 'hauler';
+    // Ensure at least 1 hauler per source
+    else if(counts.haulers < sources.length) {
+        nextRole = 'hauler';
     }
-    
     // Ensure at least one upgrader
-    if(counts.upgraders < 1) {
-        return 'upgrader';
+    else if(counts.upgraders < 1) {
+        nextRole = 'upgrader';
+    }
+    // If we have construction sites, build a builder
+    else if(constructionSites.length > 0 && counts.builders < 1) {
+        nextRole = 'builder';
+    }
+    // As we grow, add more upgraders
+    else if(counts.upgraders < 2 && room.controller.level < 8) {
+        nextRole = 'upgrader';
+    }
+    // Add more haulers as needed
+    else if(counts.haulers < Math.ceil(sources.length * 1.5)) {
+        nextRole = 'hauler';
+    }
+    // Default to more upgraders
+    else if(room.controller.level < 8) {
+        nextRole = 'upgrader';
+    }
+    // Or builders if we have construction
+    else if(constructionSites.length > 0) {
+        nextRole = 'builder';
     }
     
-    // If lots of construction sites, build more builders
-    if(counts.constructionSites > 3 && counts.builders < 2) {
-        return 'builder';
-    } else if(counts.constructionSites > 0 && counts.builders < 1) {
-        return 'builder';
+    // Spawn the creep if we decided on a role
+    if(nextRole) {
+        spawnCreep(spawn, nextRole, room.energyAvailable);
     }
-    
-    // Once basic roles are filled, consider scouts and remote harvesters
-    
-    // Keep at least one scout
-    if(counts.scouts < 1) {
-        return 'scout';
-    }
-    
-    // If we have remote harvesting rooms identified, create remote harvesters
-    if(Memory.remoteHarvestRooms && Memory.remoteHarvestRooms.length > 0) {
-        // Calculate how many remote harvesters we need
-        // For each remote room with good potential, we want 1 harvester per source
-        let remoteSourceCount = 0;
-        for(const roomName of Memory.remoteHarvestRooms) {
-            if(Memory.roomData && Memory.roomData[roomName] && 
-               Memory.roomData[roomName].sources) {
-                remoteSourceCount += Memory.roomData[roomName].sources.length;
-            }
-        }
-        
-        if(counts.remoteHarvesters < remoteSourceCount) {
-            return 'remoteHarvester';
-        }
-    }
-    
-    // RCL-dependent spawning
-    if(room.controller.level >= 3) {
-        // At higher RCL, focus on upgrading to unlock more building options
-        if(counts.upgraders < 2) {
-            return 'upgrader';
-        }
-    }
-    
-    // Default to spawning more upgraders
-    return 'upgrader';
 }
 
 /**
  * Spawn a creep based on role and available energy
  */
-function spawnCreep(spawn, role, energyAvailable) {
+function spawnCreep(spawn, role, energy) {
     let body = [];
-    let name = '';
+    let name = role.charAt(0).toUpperCase() + role.slice(1) + Game.time;
     let memory = { 
         role: role,
         homeRoom: spawn.room.name
     };
     
+    // Add role-specific memory
+    if(role === 'hauler') {
+        memory.delivering = false;
+    }
+    
+    // Design body based on available energy
     switch(role) {
         case 'harvester':
-            // Design harvester based on available energy
-            if(energyAvailable >= 800) {
-                body = [WORK,WORK,WORK,WORK,WORK,WORK,CARRY,MOVE,MOVE,MOVE]; // 800 energy
-            } else if(energyAvailable >= 550) {
+            if(energy >= 550) {
                 body = [WORK,WORK,WORK,WORK,CARRY,MOVE,MOVE]; // 550 energy
-            } else if(energyAvailable >= 400) {
+            } else if(energy >= 400) {
                 body = [WORK,WORK,WORK,CARRY,MOVE]; // 400 energy
-            } else if(energyAvailable >= 300) {
+            } else if(energy >= 250) {
                 body = [WORK,WORK,CARRY,MOVE]; // 300 energy
-            } else if(energyAvailable >= 250) {
-                body = [WORK,CARRY,MOVE,MOVE]; // 250 energy
             } else {
-                // Minimum viable harvester
                 body = [WORK,CARRY,MOVE]; // 200 energy
             }
-            
-            name = 'Harvester' + Game.time;
             break;
             
         case 'hauler':
-            // Design hauler based on available energy - more CARRY and MOVE
-            if(energyAvailable >= 800) {
-                body = [CARRY,CARRY,CARRY,CARRY,CARRY,CARRY,CARRY,CARRY,MOVE,MOVE,MOVE,MOVE,MOVE,MOVE,MOVE,MOVE]; // 800 energy
-            } else if(energyAvailable >= 500) {
-                body = [CARRY,CARRY,CARRY,CARRY,CARRY,MOVE,MOVE,MOVE,MOVE,MOVE]; // 500 energy
-            } else if(energyAvailable >= 400) {
+            if(energy >= 400) {
                 body = [CARRY,CARRY,CARRY,CARRY,MOVE,MOVE,MOVE,MOVE]; // 400 energy
-            } else if(energyAvailable >= 300) {
+            } else if(energy >= 300) {
                 body = [CARRY,CARRY,CARRY,MOVE,MOVE,MOVE]; // 300 energy
-            } else if(energyAvailable >= 200) {
+            } else if(energy >= 200) {
                 body = [CARRY,CARRY,MOVE,MOVE]; // 200 energy
             } else {
-                // Minimum viable hauler
                 body = [CARRY,MOVE]; // 100 energy
             }
-            
-            name = 'Hauler' + Game.time;
-            memory.delivering = false;
             break;
             
         case 'upgrader':
-            // Design upgrader based on available energy - balanced WORK, CARRY, MOVE
-            if(energyAvailable >= 800) {
-                body = [WORK,WORK,WORK,WORK,WORK,CARRY,CARRY,CARRY,MOVE,MOVE,MOVE,MOVE]; // 800 energy
-            } else if(energyAvailable >= 500) {
-                body = [WORK,WORK,WORK,CARRY,CARRY,MOVE,MOVE]; // 500 energy
-            } else if(energyAvailable >= 350) {
-                body = [WORK,WORK,CARRY,CARRY,MOVE]; // 350 energy
-            } else if(energyAvailable >= 300) {
-                body = [WORK,WORK,CARRY,MOVE]; // 300 energy
-            } else if(energyAvailable >= 200) {
-                body = [WORK,CARRY,MOVE]; // 200 energy
-            } else {
-                // Minimum viable upgrader
-                body = [WORK,CARRY,MOVE]; // 200 energy
-            }
-            
-            name = 'Upgrader' + Game.time;
-            break;
-            
         case 'builder':
-            // Design builder based on available energy - similar to upgrader but more CARRY
-            if(energyAvailable >= 800) {
-                body = [WORK,WORK,WORK,WORK,CARRY,CARRY,CARRY,CARRY,MOVE,MOVE,MOVE,MOVE]; // 800 energy
-            } else if(energyAvailable >= 500) {
-                body = [WORK,WORK,WORK,CARRY,CARRY,MOVE,MOVE]; // 500 energy
-            } else if(energyAvailable >= 350) {
-                body = [WORK,WORK,CARRY,CARRY,MOVE]; // 350 energy
-            } else if(energyAvailable >= 300) {
+            if(energy >= 400) {
+                body = [WORK,WORK,CARRY,CARRY,MOVE,MOVE]; // 400 energy
+            } else if(energy >= 300) {
                 body = [WORK,WORK,CARRY,MOVE]; // 300 energy
-            } else if(energyAvailable >= 200) {
-                body = [WORK,CARRY,MOVE]; // 200 energy
             } else {
-                // Minimum viable builder
                 body = [WORK,CARRY,MOVE]; // 200 energy
             }
-            
-            name = 'Builder' + Game.time;
-            break;
-            
-        case 'scout':
-            // Scout is just MOVE for fast exploration
-            if(energyAvailable >= 300) {
-                body = [MOVE,MOVE,MOVE,MOVE,MOVE,MOVE]; // 300 energy
-            } else if(energyAvailable >= 200) {
-                body = [MOVE,MOVE,MOVE,MOVE]; // 200 energy
-            } else if(energyAvailable >= 100) {
-                body = [MOVE,MOVE]; // 100 energy
-            } else {
-                body = [MOVE]; // 50 energy
-            }
-            
-            name = 'Scout' + Game.time;
-            break;
-            
-        case 'remoteHarvester':
-            // Remote harvester needs WORK for harvesting, some CARRY, more MOVE for traveling
-            if(energyAvailable >= 800) {
-                body = [WORK,WORK,WORK,WORK,CARRY,CARRY,MOVE,MOVE,MOVE,MOVE,MOVE,MOVE]; // 800 energy
-            } else if(energyAvailable >= 600) {
-                body = [WORK,WORK,WORK,CARRY,CARRY,MOVE,MOVE,MOVE,MOVE,MOVE]; // 600 energy
-            } else if(energyAvailable >= 450) {
-                body = [WORK,WORK,CARRY,CARRY,MOVE,MOVE,MOVE,MOVE]; // 450 energy
-            } else if(energyAvailable >= 300) {
-                body = [WORK,WORK,CARRY,MOVE,MOVE]; // 300 energy
-            } else {
-                // Minimum viable remote harvester
-                body = [WORK,CARRY,MOVE,MOVE]; // 250 energy
-            }
-            
-            name = 'RHarvest' + Game.time;
             break;
     }
     
     // Only spawn if we created a valid body
     if(body.length > 0) {
-        console.log(`Attempting to spawn ${role}: ${name} with body: ${body}`);
         const result = spawn.spawnCreep(body, name, { memory: memory });
-        console.log(`Spawn result: ${result}`);
+        
+        if(result === OK) {
+            console.log(`Spawning ${role}: ${name}`);
+        }
+    }
+}
+
+/**
+ * Display spawning information
+ */
+function displaySpawnInfo(spawn) {
+    if(spawn.spawning) { 
+        var spawningCreep = Game.creeps[spawn.spawning.name];
+        spawn.room.visual.text(
+            '🛠️' + spawningCreep.memory.role,
+            spawn.pos.x + 1, 
+            spawn.pos.y, 
+            {align: 'left', opacity: 0.8});
     }
 }
 
 /**
  * Handle hostile creeps in the room
  */
-function handleHostiles(room, spawn) {
+function handleHostiles(room) {
     const hostiles = room.find(FIND_HOSTILE_CREEPS);
     
     if(hostiles.length > 0) {
@@ -387,24 +258,263 @@ function handleHostiles(room, spawn) {
                 tower.attack(target);
             }
         }
+    }
+}
+
+/**
+ * Run harvester logic
+ */
+function runHarvester(creep) {
+    // Assign a source if needed
+    if(!creep.memory.sourceId) {
+        const sources = creep.room.find(FIND_SOURCES);
+        if(sources.length > 0) {
+            // Distribute harvesters among sources
+            const sourceIndex = (Game.time + creep.id.charCodeAt(0)) % sources.length;
+            creep.memory.sourceId = sources[sourceIndex].id;
+        }
+    }
+    
+    const source = Game.getObjectById(creep.memory.sourceId);
+    if(!source) return;
+    
+    // Harvest from source
+    if(creep.harvest(source) === ERR_NOT_IN_RANGE) {
+        creep.moveTo(source, {visualizePathStyle: {stroke: '#ffaa00'}});
+        creep.say('🔄 harvest');
+    } else {
+        creep.say('⛏️ mining');
+    }
+    
+    // If full, try to find a container or drop energy
+    if(creep.store.getFreeCapacity() === 0) {
+        const container = source.pos.findInRange(FIND_STRUCTURES, 1, {
+            filter: s => s.structureType === STRUCTURE_CONTAINER
+        })[0];
         
-        // If we have no towers or not enough, consider spawning defensive creeps
-        if(towers.length === 0 || hostiles.length > towers.length) {
-            // TODO: Implement defensive creep spawning
+        if(container) {
+            creep.transfer(container, RESOURCE_ENERGY);
+        } else {
+            creep.drop(RESOURCE_ENERGY);
+            creep.say('💧 drop');
         }
     }
 }
 
 /**
- * Display spawning information
+ * Run hauler logic
  */
-function displaySpawnInfo(spawn) {
-    if(spawn.spawning) { 
-        var spawningCreep = Game.creeps[spawn.spawning.name];
-        spawn.room.visual.text(
-            '🛠️' + spawningCreep.memory.role,
-            spawn.pos.x + 1, 
-            spawn.pos.y, 
-            {align: 'left', opacity: 0.8});
+function runHauler(creep) {
+    // Switch states if needed
+    if(creep.memory.delivering && creep.store[RESOURCE_ENERGY] === 0) {
+        creep.memory.delivering = false;
+        creep.say('🔄 collect');
+    }
+    if(!creep.memory.delivering && creep.store.getFreeCapacity() === 0) {
+        creep.memory.delivering = true;
+        creep.say('📦 deliver');
+    }
+    
+    if(creep.memory.delivering) {
+        // Find structures that need energy
+        let target = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+            filter: (structure) => {
+                return (structure.structureType === STRUCTURE_EXTENSION ||
+                        structure.structureType === STRUCTURE_SPAWN) &&
+                        structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0;
+            }
+        });
+        
+        // If no spawns/extensions need energy, try towers
+        if(!target) {
+            target = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+                filter: (structure) => {
+                    return structure.structureType === STRUCTURE_TOWER &&
+                           structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0;
+                }
+            });
+        }
+        
+        // If no towers, try storage
+        if(!target) {
+            target = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+                filter: (structure) => {
+                    return structure.structureType === STRUCTURE_STORAGE &&
+                           structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0;
+                }
+            });
+        }
+        
+        // If we found a target, move to it and transfer energy
+        if(target) {
+            if(creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                creep.moveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+            }
+        } else {
+            // If no target, move near controller
+            creep.moveTo(creep.room.controller, {visualizePathStyle: {stroke: '#ffffff'}, range: 3});
+        }
+    } else {
+        // Collect energy - first look for dropped resources
+        const droppedResource = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES, {
+            filter: resource => resource.resourceType === RESOURCE_ENERGY && resource.amount > 20
+        });
+        
+        if(droppedResource) {
+            if(creep.pickup(droppedResource) === ERR_NOT_IN_RANGE) {
+                creep.moveTo(droppedResource, {visualizePathStyle: {stroke: '#ffaa00'}});
+            }
+            return;
+        }
+        
+        // Then check containers
+        const container = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+            filter: s => s.structureType === STRUCTURE_CONTAINER && 
+                      s.store[RESOURCE_ENERGY] > 0
+        });
+        
+        if(container) {
+            if(creep.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                creep.moveTo(container, {visualizePathStyle: {stroke: '#ffaa00'}});
+            }
+            return;
+        }
+        
+        // Find harvesters to follow
+        const harvester = creep.pos.findClosestByPath(FIND_MY_CREEPS, {
+            filter: c => c.memory.role === 'harvester' && 
+                      c.store[RESOURCE_ENERGY] > 0
+        });
+        
+        if(harvester) {
+            creep.moveTo(harvester, {visualizePathStyle: {stroke: '#ffaa00'}, range: 1});
+            creep.say('👀 H-ver');
+            return;
+        }
+        
+        // Last resort: go to a source
+        const source = creep.pos.findClosestByPath(FIND_SOURCES_ACTIVE);
+        if(source) {
+            creep.moveTo(source, {visualizePathStyle: {stroke: '#ffaa00'}, range: 2});
+        }
+    }
+}
+
+/**
+ * Run upgrader logic
+ */
+function runUpgrader(creep) {
+    // Switch states if needed
+    if(creep.memory.upgrading && creep.store[RESOURCE_ENERGY] === 0) {
+        creep.memory.upgrading = false;
+        creep.say('🔄 collect');
+    }
+    if(!creep.memory.upgrading && creep.store.getFreeCapacity() === 0) {
+        creep.memory.upgrading = true;
+        creep.say('⚡ upgrade');
+    }
+    
+    if(creep.memory.upgrading) {
+        // Upgrade controller
+        if(creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE) {
+            creep.moveTo(creep.room.controller, {visualizePathStyle: {stroke: '#ffffff'}});
+        }
+    } else {
+        // Collect energy - first check containers
+        const container = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+            filter: s => s.structureType === STRUCTURE_CONTAINER && 
+                      s.store[RESOURCE_ENERGY] > 50
+        });
+        
+        if(container) {
+            if(creep.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                creep.moveTo(container, {visualizePathStyle: {stroke: '#ffaa00'}});
+            }
+            return;
+        }
+        
+        // Then try dropped resources
+        const droppedResource = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES, {
+            filter: resource => resource.resourceType === RESOURCE_ENERGY && resource.amount > 20
+        });
+        
+        if(droppedResource) {
+            if(creep.pickup(droppedResource) === ERR_NOT_IN_RANGE) {
+                creep.moveTo(droppedResource, {visualizePathStyle: {stroke: '#ffaa00'}});
+            }
+            return;
+        }
+        
+        // Fall back to harvesting directly
+        const source = creep.pos.findClosestByPath(FIND_SOURCES_ACTIVE);
+        if(source) {
+            if(creep.harvest(source) === ERR_NOT_IN_RANGE) {
+                creep.moveTo(source, {visualizePathStyle: {stroke: '#ffaa00'}});
+            }
+        }
+    }
+}
+
+/**
+ * Run builder logic
+ */
+function runBuilder(creep) {
+    // Switch states if needed
+    if(creep.memory.building && creep.store[RESOURCE_ENERGY] === 0) {
+        creep.memory.building = false;
+        creep.say('🔄 collect');
+    }
+    if(!creep.memory.building && creep.store.getFreeCapacity() === 0) {
+        creep.memory.building = true;
+        creep.say('🚧 build');
+    }
+    
+    if(creep.memory.building) {
+        // Find construction sites
+        const site = creep.pos.findClosestByPath(FIND_CONSTRUCTION_SITES);
+        
+        if(site) {
+            if(creep.build(site) === ERR_NOT_IN_RANGE) {
+                creep.moveTo(site, {visualizePathStyle: {stroke: '#ffffff'}});
+            }
+        } else {
+            // If no construction sites, help with upgrading
+            if(creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE) {
+                creep.moveTo(creep.room.controller, {visualizePathStyle: {stroke: '#ffffff'}});
+            }
+        }
+    } else {
+        // Collect energy - first check containers
+        const container = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+            filter: s => s.structureType === STRUCTURE_CONTAINER && 
+                      s.store[RESOURCE_ENERGY] > 50
+        });
+        
+        if(container) {
+            if(creep.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                creep.moveTo(container, {visualizePathStyle: {stroke: '#ffaa00'}});
+            }
+            return;
+        }
+        
+        // Then try dropped resources
+        const droppedResource = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES, {
+            filter: resource => resource.resourceType === RESOURCE_ENERGY && resource.amount > 20
+        });
+        
+        if(droppedResource) {
+            if(creep.pickup(droppedResource) === ERR_NOT_IN_RANGE) {
+                creep.moveTo(droppedResource, {visualizePathStyle: {stroke: '#ffaa00'}});
+            }
+            return;
+        }
+        
+        // Fall back to harvesting directly
+        const source = creep.pos.findClosestByPath(FIND_SOURCES_ACTIVE);
+        if(source) {
+            if(creep.harvest(source) === ERR_NOT_IN_RANGE) {
+                creep.moveTo(source, {visualizePathStyle: {stroke: '#ffaa00'}});
+            }
+        }
     }
 }
