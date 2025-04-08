@@ -65,11 +65,11 @@ var moveCoordinator = {
         };
         
         // Merge with provided options
-        const options = {...defaultOpts, ...opts};
+        const options = Object.assign({}, defaultOpts, opts);
         
         // Get the previous path from memory
-        const prevPath = creep.memory._move?.path;
-        const prevTarget = creep.memory._move?.dest;
+        const prevPath = creep.memory._move ? creep.memory._move.path : null;
+        const prevTarget = creep.memory._move ? creep.memory._move.dest : null;
         
         // Check if we already have a valid path to the same destination
         if(prevPath && prevTarget && 
@@ -89,7 +89,7 @@ var moveCoordinator = {
                     
                     if(blockingCreep) {
                         // Check if the blocking creep is trying to move to our position (swap)
-                        if(blockingCreep.memory._move?.path) {
+                        if(blockingCreep.memory._move && blockingCreep.memory._move.path) {
                             const blockingNextPos = this.getNextPathPosition(blockingCreep, blockingCreep.memory._move.path);
                             
                             if(blockingNextPos && blockingNextPos.isEqualTo(creep.pos)) {
@@ -133,24 +133,61 @@ var moveCoordinator = {
                 // Try each direction until we find one that works
                 for(let i = 0; i < directions.length; i++) {
                     const direction = directions[i];
-                    const newPos = new RoomPosition(
-                        creep.pos.x + Game.dirs[direction][0],
-                        creep.pos.y + Game.dirs[direction][1],
-                        creep.pos.roomName
-                    );
-                    
-                    // Skip if out of bounds
-                    if(newPos.x < 0 || newPos.y < 0 || newPos.x > 49 || newPos.y > 49) continue;
-                    
-                    // Check if position is walkable and not occupied
-                    const posKey = this.positionToKey(newPos);
-                    const terrain = Game.map.getRoomTerrain(newPos.roomName);
-                    
-                    if(terrain.get(newPos.x, newPos.y) !== TERRAIN_MASK_WALL && 
-                       !Memory.moveCoordinator.positions[posKey]) {
-                        creep.move(direction);
-                        creep.memory.stuck = 0;
-                        break;
+                    // Fix: Use Direction constants correctly
+                    if(!Game.dirs) {
+                        // Game.dirs is not defined in standard Screeps, let's define the deltas ourselves
+                        const directionDeltas = {
+                            [TOP]: [0, -1],
+                            [TOP_RIGHT]: [1, -1],
+                            [RIGHT]: [1, 0],
+                            [BOTTOM_RIGHT]: [1, 1],
+                            [BOTTOM]: [0, 1],
+                            [BOTTOM_LEFT]: [-1, 1],
+                            [LEFT]: [-1, 0],
+                            [TOP_LEFT]: [-1, -1]
+                        };
+                        
+                        const delta = directionDeltas[direction] || [0, 0];
+                        const newPos = new RoomPosition(
+                            creep.pos.x + delta[0],
+                            creep.pos.y + delta[1],
+                            creep.pos.roomName
+                        );
+                        
+                        // Skip if out of bounds
+                        if(newPos.x < 0 || newPos.y < 0 || newPos.x > 49 || newPos.y > 49) continue;
+                        
+                        // Check if position is walkable and not occupied
+                        const posKey = this.positionToKey(newPos);
+                        const terrain = Game.map.getRoomTerrain(newPos.roomName);
+                        
+                        if(terrain.get(newPos.x, newPos.y) !== TERRAIN_MASK_WALL && 
+                          !Memory.moveCoordinator.positions[posKey]) {
+                            creep.move(direction);
+                            creep.memory.stuck = 0;
+                            break;
+                        }
+                    } else {
+                        // Use Game.dirs if it exists
+                        const newPos = new RoomPosition(
+                            creep.pos.x + Game.dirs[direction][0],
+                            creep.pos.y + Game.dirs[direction][1],
+                            creep.pos.roomName
+                        );
+                        
+                        // Skip if out of bounds
+                        if(newPos.x < 0 || newPos.y < 0 || newPos.x > 49 || newPos.y > 49) continue;
+                        
+                        // Check if position is walkable and not occupied
+                        const posKey = this.positionToKey(newPos);
+                        const terrain = Game.map.getRoomTerrain(newPos.roomName);
+                        
+                        if(terrain.get(newPos.x, newPos.y) !== TERRAIN_MASK_WALL && 
+                          !Memory.moveCoordinator.positions[posKey]) {
+                            creep.move(direction);
+                            creep.memory.stuck = 0;
+                            break;
+                        }
                     }
                 }
             }
