@@ -38,55 +38,37 @@ module.exports.loop = function () {
 
         // Only attempt to spawn if not currently busy spawning another creep
         if (!spawn.spawning) {
-            // Emergency spawn: if no creeps at all, spawn a Harvester with whatever energy is available
-            if (Object.keys(Game.creeps).length === 0) {
-                if (energyAvail >= 200) {
-                    // Use at least [WORK, CARRY, MOVE] = 200 energy to bootstrap harvesting
-                    spawn.spawnCreep([WORK, CARRY, MOVE], 'Harvester-' + Game.time, { 
-                        memory: { role: 'harvester' }
-                    });
-                } else if (energyAvail >= 150) {
-                    // If energy is very low, spawn [WORK, MOVE] = 150 (will drop mined energy on ground)
-                    spawn.spawnCreep([WORK, MOVE], 'Harvester-' + Game.time, { 
-                        memory: { role: 'harvester' }
-                    });
-                }
-                // (If <150 energy available and no creeps, we cannot spawn anything)
-            }
-            // Normal spawning (use full capacity available for each new creep)
-            else {
-                // **1. Creep Roles and Body Configs**: use optimal body configs for 300 energy at RCL1
-                const harvesterBody = [WORK, WORK, MOVE, CARRY];                  // 300 energy: 2 WORK for max harvest, minimal CARRY/MOVE
-                const haulerBody    = [CARRY, CARRY, CARRY, CARRY, MOVE, MOVE];   // 300 energy: 4 CARRY for capacity, 2 MOVE for reasonable speed
-                const scoutBody     = [MOVE];                                    // 50 energy: 1 MOVE for cheap scouting
+            // **1. Creep Roles and Body Configs**: use optimal body configs for 300 energy at RCL1
+            const harvesterBody = [WORK, WORK, MOVE, CARRY];                  // 300 energy: 2 WORK for max harvest, minimal CARRY/MOVE
+            const haulerBody    = [CARRY, CARRY, CARRY, CARRY, MOVE, MOVE];   // 300 energy: 4 CARRY for capacity, 2 MOVE for reasonable speed
+            const scoutBody     = [MOVE];                                    // 50 energy: 1 MOVE for cheap scouting
 
-                // Spawn Harvesters until desired count is reached
-                if (harvesters.length < desiredHarvesters) {
-                    // Assign this harvester to an unassigned source (to ensure one per source)
-                    let targetSource = null;
-                    for (const src of sources) {
-                        if (!harvesters.find(h => h.memory.sourceId === src.id)) {
-                            targetSource = src;
-                            break;
-                        }
+            // Spawn Harvesters until desired count is reached
+            if (harvesters.length < desiredHarvesters) {
+                // Assign this harvester to an unassigned source (to ensure one per source)
+                let targetSource = null;
+                for (const src of sources) {
+                    if (!harvesters.find(h => h.memory.sourceId === src.id)) {
+                        targetSource = src;
+                        break;
                     }
-                    // Spawn the harvester with full energy capacity (or as defined body)
-                    spawn.spawnCreep(harvesterBody, 'Harvester-' + Game.time, {
-                        memory: { role: 'harvester', sourceId: targetSource ? targetSource.id : null }
-                    });
                 }
-                // Spawn Haulers until desired count is reached
-                else if (haulers.length < desiredHaulers) {
-                    spawn.spawnCreep(haulerBody, 'Hauler-' + Game.time, {
-                        memory: { role: 'hauler' }
-                    });
-                }
-                // Spawn a Scout if none exists (only 1 needed)
-                else if (scouts.length < desiredScouts) {
-                    spawn.spawnCreep(scoutBody, 'Scout-' + Game.time, {
-                        memory: { role: 'scout', homeRoom: room.name }
-                    });
-                }
+                // Spawn the harvester with full energy capacity (or as defined body)
+                spawn.spawnCreep(harvesterBody, 'Harvester-' + Game.time, {
+                    memory: { role: 'harvester', sourceId: targetSource ? targetSource.id : null }
+                });
+            }
+            // Spawn Haulers until desired count is reached
+            else if (haulers.length < desiredHaulers) {
+                spawn.spawnCreep(haulerBody, 'Hauler-' + Game.time, {
+                    memory: { role: 'hauler' }
+                });
+            }
+            // Spawn a Scout if none exists (only 1 needed)
+            else if (scouts.length < desiredScouts) {
+                spawn.spawnCreep(scoutBody, 'Scout-' + Game.time, {
+                    memory: { role: 'scout', homeRoom: room.name }
+                });
             }
         }
     }
