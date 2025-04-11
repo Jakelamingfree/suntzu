@@ -26,6 +26,13 @@ module.exports.loop = function () {
         const energyCap   = room.energyCapacityAvailable;
         const rcl         = room.controller.level;
 
+        // Count existing creeps by role
+        const harvesters = _.filter(Game.creeps, creep => creep.memory.role === 'harvester');
+        const haulers    = _.filter(Game.creeps, creep => creep.memory.role === 'hauler');
+        const upgraders  = _.filter(Game.creeps, creep => creep.memory.role === 'upgrader');
+        const builders   = _.filter(Game.creeps, creep => creep.memory.role === 'builder');
+        const scouts     = _.filter(Game.creeps, creep => creep.memory.role === 'scout');
+
         // Initialize Memory.roomSources if it doesn't exist
         if (!Memory.roomSources) {
             Memory.roomSources = {};
@@ -78,13 +85,6 @@ module.exports.loop = function () {
         const hasEnoughGatherers = (harvesters.length >= desiredHarvesters && haulers.length >= desiredHaulers);
         const desiredUpgraders  = hasEnoughGatherers ? (rcl >= 2 ? 2 : 1) : 0;
         const desiredBuilders   = (hasEnoughGatherers && rcl >= 2) ? 1 : 0;
-
-        // Count existing creeps by role
-        const harvesters = _.filter(Game.creeps, creep => creep.memory.role === 'harvester');
-        const haulers    = _.filter(Game.creeps, creep => creep.memory.role === 'hauler');
-        const upgraders  = _.filter(Game.creeps, creep => creep.memory.role === 'upgrader');
-        const builders   = _.filter(Game.creeps, creep => creep.memory.role === 'builder');
-        const scouts     = _.filter(Game.creeps, creep => creep.memory.role === 'scout');
 
         // Log current creep counts for debugging
         console.log(`Harvesters: ${harvesters.length}/${desiredHarvesters}, Haulers: ${haulers.length}/${desiredHaulers}, Upgraders: ${upgraders.length}/${desiredUpgraders}, Scouts: ${scouts.length}/${desiredScouts}`);
