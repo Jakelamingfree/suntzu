@@ -9,7 +9,6 @@ const roleHauler = {
     run: function(creep) {
         // If hauler has a target room assigned but isn't there yet, travel to it
         if (creep.memory.targetRoom && creep.room.name !== creep.memory.targetRoom) {
-            creep.say('🚚 ' + creep.memory.targetRoom);
             const exitDir = Game.map.findExit(creep.room, creep.memory.targetRoom);
             const exit = creep.pos.findClosestByPath(exitDir);
             creep.moveTo(exit, { visualizePathStyle: { stroke: '#ffaa00' } });
@@ -65,7 +64,6 @@ const roleHauler = {
                         // If no more than 1 creep is at this source, it's a viable target
                         if (creepsAtSource.length <= 1) {
                             creep.memory.harvestSource = source.id;
-                            creep.say('⛏️ harvest');
                             
                             if (creep.harvest(source) === ERR_NOT_IN_RANGE) {
                                 creep.moveTo(source, { visualizePathStyle: { stroke: '#ffaa00' } });
@@ -78,14 +76,12 @@ const roleHauler = {
                 // Store the target in memory to avoid multiple haulers taking the same resource
                 if (pickup) {
                     creep.memory.pickupTarget = pickup.id;
-                    creep.say('🔄 pickup');
                 } else {
                     // No pickup source found, wait near spawn
                     const spawn = creep.pos.findClosestByPath(FIND_MY_SPAWNS);
                     if (spawn && !creep.pos.inRangeTo(spawn, 3)) {
                         creep.moveTo(spawn, { visualizePathStyle: { stroke: '#ffffff' } });
                     }
-                    creep.say('⏳ waiting');
                     return;
                 }
             }
@@ -147,14 +143,12 @@ const roleHauler = {
                         const closestUpgrader = creep.pos.findClosestByPath(upgraders);
                         if (closestUpgrader) {
                             target = closestUpgrader;
-                            creep.say('🔋 upgrader');
                         }
                     }
                 }
                 
                 if (target) {
                     creep.memory.deliveryTarget = target.id;
-                    creep.say('🚚 deliver');
                 }
             }
             
@@ -179,13 +173,11 @@ const roleHauler = {
                 // All targets full - deposit at controller directly until we get upgraders
                 if (creep.room.controller && !creep.room.controller.my) {
                     // Can't upgrade neutral controllers, just wait
-                    creep.say('⏳ waiting');
                 } else if (creep.room.controller) {
                     // Directly upgrade controller if nothing else to do
                     if (creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE) {
                         creep.moveTo(creep.room.controller, { visualizePathStyle: { stroke: '#ffffff' } });
                     }
-                    creep.say('⚡ upgrade');
                 }
             }
         }

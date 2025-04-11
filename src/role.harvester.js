@@ -6,7 +6,6 @@ const roleHarvester = {
         // Check if we need to travel to a different room
         if (creep.memory.targetRoom && creep.room.name !== creep.memory.targetRoom) {
             // Move to the target room
-            creep.say('🌎 ' + creep.memory.targetRoom);
             const exitDir = Game.map.findExit(creep.room, creep.memory.targetRoom);
             const exit = creep.pos.findClosestByPath(exitDir);
             creep.moveTo(exit, { visualizePathStyle: { stroke: '#ffaa00' } });
@@ -30,7 +29,6 @@ const roleHarvester = {
             source = _.find(sources, s => s.pos.x == parseInt(x) && s.pos.y == parseInt(y));
             
             if (!source) {
-                creep.say('⚠️ No source');
                 console.log(`Harvester ${creep.name} couldn't find source at ${x},${y} in room ${roomName}`);
             }
         } else {
@@ -83,22 +81,18 @@ const roleHarvester = {
             if (!creep.pos.isEqualTo(container.pos)) {
                 // Move onto the container if not already there (so energy drops into it)
                 creep.moveTo(container.pos, { visualizePathStyle: { stroke: '#ffaa00' } });
-                creep.say('🚶 to cont');
             } else {
                 // If container is full, pause harvesting (to avoid wasting energy drops)
                 if (container.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
                     // Container is full – do nothing (idle until hauler clears it)
-                    creep.say('😴 full');
                 } else {
                     // Container has space – harvest the source
                     if (creep.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
                         // Creep can still carry energy (buffer not full), continue harvesting
                         creep.harvest(source);
-                        creep.say('⛏️ harvest');
                     } else {
                         // Creep's carry is full – transfer to container to empty it out
                         creep.transfer(container, RESOURCE_ENERGY);
-                        creep.say('🔄 deposit');
                     }
                 }
             }
@@ -106,10 +100,14 @@ const roleHarvester = {
             // No container (early game or container not yet built)
             // Early game hybrid approach: harvest and deliver or drop
             
+            // Check if there are haulers in the room - if yes, we should stay at source
+            const haulers = _.filter(Game.creeps, 
+                creep => creep.memory.role === 'hauler' && creep.room.name === creep.room.name);
+            const hasHaulers = haulers.length > 0;
+            
             // Move to source if not nearby
             if (!creep.pos.isNearTo(source)) {
                 creep.moveTo(source, { visualizePathStyle: { stroke: '#ffaa00' } });
-                creep.say('🚶 to src');
                 return;
             }
             
@@ -126,10 +124,15 @@ const roleHarvester = {
             if (!creep.memory.delivering) {
                 // Not delivering - harvest energy
                 creep.harvest(source);
-                creep.say('⛏️ harvest');
             } else {
-                // Delivering - find a target
+                // If we have haulers, just drop the energy by the source
+                if (hasHaulers) {
+                    creep.drop(RESOURCE_ENERGY);
+                    creep.memory.delivering = false;
+                    return;
+                }
                 
+                // No haulers - delivering - find a target
                 // Priority 1: Spawn and extensions
                 let target = creep.pos.findClosestByRange(FIND_MY_STRUCTURES, {
                     filter: structure => {
@@ -142,29 +145,14 @@ const roleHarvester = {
                     // Move to the target and transfer energy
                     if (!creep.pos.isNearTo(target)) {
                         creep.moveTo(target, { visualizePathStyle: { stroke: '#ffffff' } });
-                        creep.say('🚚 deliver');
                     } else {
                         creep.transfer(target, RESOURCE_ENERGY);
-                        creep.say('⚡ transfer');
                     }
                 } else {
                     // No valid target (spawn/extensions might be full)
-                    
-                    // Priority 2: Check for haulers nearby that need energy
-                    const haulers = creep.pos.findInRange(FIND_MY_CREEPS, 1, {
-                        filter: c => c.memory.role === 'hauler' && c.store.getFreeCapacity(RESOURCE_ENERGY) > 0
-                    });
-                    
-                    if (haulers.length > 0) {
-                        creep.transfer(haulers[0], RESOURCE_ENERGY);
-                        creep.say('🔋 to hauler');
-                    } else {
-                        // Priority 3: Just drop the energy to free up carrying capacity
-                        // Drop it near the source so haulers can pick it up
-                        creep.drop(RESOURCE_ENERGY);
-                        creep.say('💧 dropping');
-                        creep.memory.delivering = false;
-                    }
+                    // Just drop it by the source so future haulers can pick it up
+                    creep.drop(RESOURCE_ENERGY);
+                    creep.memory.delivering = false;
                 }
             }
         }
