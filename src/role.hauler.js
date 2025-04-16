@@ -1,18 +1,14 @@
-import { Creep } from "game/prototypes";
+var roleHauler = {
 
-const roleHauler = {
     /** @param {Creep} creep **/
-    run: function(creep: Creep): void {
-        // If the hauler isn't full
+    run: function(creep) {
         if (creep.store.getFreeCapacity() > 0) {
             // Find energy on the ground
             const droppedEnergy = creep.room.find(FIND_DROPPED_RESOURCES, {
                 filter: resource => resource.resourceType == RESOURCE_ENERGY
-            });
-
+            })
             // Find the closest energy on the ground
-            const closestDroppedEnergy = creep.pos.findClosestByRange(droppedEnergy);
-
+            const closestDroppedEnergy = creep.pos.findClosestByRange(droppedEnergy)
             // Try to pickup the energy. If it's not in range
             if (creep.pickup(closestDroppedEnergy) == ERR_NOT_IN_RANGE) {
                 // Move to it
@@ -20,11 +16,9 @@ const roleHauler = {
             }
         } else {
             // Find spawns in the room
-            const spawns = creep.room.find(FIND_MY_SPAWNS);
-
+            const spawns = creep.room.find(FIND_MY_SPAWNS)
             // Find the closest spawn
-            const closestSpawn = creep.pos.findClosestByRange(spawns);
-
+            const closestSpawn = creep.pos.findClosestByRange(spawns)
             // Try to transfer energy to the spawn. If it's not in range
             if (creep.transfer(closestSpawn, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
                 // Move to it
@@ -34,4 +28,4 @@ const roleHauler = {
     }
 };
 
-export = roleHauler;
+module.exports = roleHauler;
