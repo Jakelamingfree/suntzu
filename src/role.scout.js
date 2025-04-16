@@ -1,6 +1,11 @@
 // Scout role
 var roleScout = {
     run: function(creep) {
+        // Initialize homeRoom if not set
+        if (!creep.memory.homeRoom) {
+            creep.memory.homeRoom = creep.room.name;
+        }
+        
         // If we're in our target room
         if (creep.memory.targetRoom && creep.room.name === creep.memory.targetRoom) {
             // Survey all important aspects of this room
@@ -95,8 +100,18 @@ var roleScout = {
                     // Skip the source position itself
                     if (pos.x === source.pos.x && pos.y === source.pos.y) return;
                     
-                    // Check terrain and structures as before...
-                    // [Your existing filter code]
+                    // Check if position has terrain and is a wall
+                    if (pos.type === 'terrain' && pos.terrain === 'wall') return;
+                    
+                    // Check if position has a blocking structure
+                    const structures = source.room.lookForAt(LOOK_STRUCTURES, pos.x, pos.y);
+                    const hasBlockingStructure = structures.some(s => 
+                        s.structureType !== STRUCTURE_ROAD && 
+                        s.structureType !== STRUCTURE_CONTAINER &&
+                        s.structureType !== STRUCTURE_RAMPART
+                    );
+                    
+                    if (hasBlockingStructure) return;
                     
                     // This is a valid mining position
                     if (!walkablePositions.some(p => p.x === pos.x && p.y === pos.y)) {
@@ -116,12 +131,14 @@ var roleScout = {
                         homeSpawn.pos
                     );
                     Memory.rooms[creep.room.name].sources[source.id].roundTripTime = roundTripTime;
+                    Memory.rooms[creep.room.name].sources[source.id].isRemote = true;
                 } else {
                     // Local source calculation
                     const pathToSource = homeSpawn.pos.findPathTo(source.pos);
                     const timeToSource = pathToSource.length;
                     const timeFromSource = pathToSource.length * 2; // Hauler speed when full
                     Memory.rooms[creep.room.name].sources[source.id].roundTripTime = timeToSource + timeFromSource;
+                    Memory.rooms[creep.room.name].sources[source.id].isRemote = false;
                 }
                 
                 allSourcesSurveyed = false;
@@ -147,6 +164,9 @@ var roleScout = {
             lastSeen: hostiles.length > 0 ? Game.time : Memory.rooms[creep.room.name].hostiles?.lastSeen || 0,
             dangerLevel: this.assessDangerLevel(hostiles)
         };
+        
+        // Track if room is safe for harvesting
+        Memory.rooms[creep.room.name].isSafeForHarvesting = hostiles.length === 0;
         
         // Mark hostiles as surveyed
         Memory.rooms[creep.room.name].hostilesSurveyed = true;
@@ -193,8 +213,14 @@ var roleScout = {
                     ticksToEnd: controller.reservation.ticksToEnd
                 } : null
             };
+            
+            // Check if we can claim this room
+            Memory.rooms[creep.room.name].isClaimable = !controller.owner && 
+                                                       (!controller.reservation || 
+                                                       controller.reservation.username === Game.spawns['Spawn1'].owner.username);
         } else {
             Memory.rooms[creep.room.name].controller = { exists: false };
+            Memory.rooms[creep.room.name].isClaimable = false;
         }
         
         // Mark controller as surveyed
@@ -278,6 +304,7 @@ var roleScout = {
         // Find an unvisited room or one that needs resurveying
         const MAX_SURVEY_AGE = 10000; // Resurvey rooms after this many ticks
         
+        // First prioritize immediately adjacent rooms that haven't been surveyed
         for (let dir in exits) {
             const roomName = exits[dir];
             
@@ -295,8 +322,34 @@ var roleScout = {
             return;
         }
         
-        // If all adjacent rooms are recently surveyed, return to home
+        // If all adjacent rooms are surveyed, check for any unsurveyed room that's adjacent to a room we know
+        if (Memory.rooms) {
+            for (let roomName in Memory.rooms) {
+                const roomExits = Game.map.describeExits(roomName);
+                for (let dir in roomExits) {
+                    const adjacentRoom = roomExits[dir];
+                    
+                    // Skip rooms we've recently surveyed
+                    if (Memory.rooms[adjacentRoom] && 
+                        Memory.rooms[adjacentRoom].lastSurvey && 
+                        Game.time - Memory.rooms[adjacentRoom].lastSurvey < MAX_SURVEY_AGE) {
+                        continue;
+                    }
+                    
+                    // Set this as our next target
+                    creep.memory.targetRoom = roomName; // First go to the connecting room
+                    creep.memory.nextTargetRoom = adjacentRoom; // Then to the unsurveyed room
+                    creep.memory.roomSurveyed = false;
+                    return;
+                }
+            }
+        }
+        
+        // If all known rooms are recently surveyed, return to home
         creep.memory.targetRoom = creep.memory.homeRoom;
+        
+        // Set a flag indicating all accessible rooms have been surveyed
+        Memory.allRoomsSurveyed = true;
     }
 };
 
