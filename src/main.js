@@ -6,15 +6,42 @@ var roleScout = require('role.scout');
 
 // This function runs every tick
 module.exports.loop = function() {
+    // Initialize memory structures if they don't exist
+    if (!Memory.gameState) {
+        Memory.gameState = {
+            scoutingPhase: true,           // Initially in scouting phase
+            initialScoutSpawned: false,    // Track if initial scout spawned
+            expansionMode: 'scaling',      // Default to scaling mode
+            availableSources: 0,           // Count of available sources
+            lastSourceCount: 0,            // Last count to detect changes
+            scoutingComplete: false        // Whether all rooms have been scouted
+        };
+    }
+    
+    if (!Memory.spawnSequence) {
+        Memory.spawnSequence = {
+            lastSpawnType: null,
+            totalSpawnCount: 0,
+            deadCreepTypes: {} // Track types of creeps that have died
+        };
+    }
+    
+    // Initialize dead creeps tracking BEFORE it's used
+    if (!Memory.deadCreeps) {
+        Memory.deadCreeps = {
+            harvester: 0,
+            hauler: 0,
+            upgrader: 0,
+            scout: 0
+        };
+    }
+    
     // Garbage collection: remove dead creeps from memory and track them
     for (var creepName in Memory.creeps) {
         if (!Game.creeps[creepName]) {
             // Track the type of creep that died for replacement
             const role = Memory.creeps[creepName].role;
             if (role) {
-                if (!Memory.deadCreeps[role]) {
-                    Memory.deadCreeps[role] = 0;
-                }
                 Memory.deadCreeps[role]++;
                 console.log(`Creep died: ${role} (${creepName}). Queued for replacement.`);
             }
@@ -27,18 +54,6 @@ module.exports.loop = function() {
                 delete Memory.priorityUpgraders[creepName];
             }
         }
-    }
-    
-    // Initialize game state memory if needed
-    if (!Memory.gameState) {
-        Memory.gameState = {
-            scoutingPhase: true,           // Initially in scouting phase
-            initialScoutSpawned: false,    // Track if initial scout spawned
-            expansionMode: 'scaling',      // Default to scaling mode
-            availableSources: 0,           // Count of available sources
-            lastSourceCount: 0,            // Last count to detect changes
-            scoutingComplete: false        // Whether all rooms have been scouted
-        };
     }
     
     // Update scouting status from scout memory
@@ -255,25 +270,6 @@ module.exports.loop = function() {
     console.log(`Dead creeps awaiting replacement: H:${Memory.deadCreeps.harvester} Ha:${Memory.deadCreeps.hauler} U:${Memory.deadCreeps.upgrader} S:${Memory.deadCreeps.scout}`);
     console.log(`Expansion mode: ${Memory.gameState.expansionMode}, Safe sources: ${Memory.gameState.availableSources}`);
     
-    // Initialize spawn sequence memory if it doesn't exist
-    if (!Memory.spawnSequence) {
-        Memory.spawnSequence = {
-            lastSpawnType: null,
-            totalSpawnCount: 0,
-            deadCreepTypes: {} // Track types of creeps that have died
-        };
-    }
-    
-    // Track dead creeps from memory cleanup
-    if (!Memory.deadCreeps) {
-        Memory.deadCreeps = {
-            harvester: 0,
-            hauler: 0,
-            upgrader: 0,
-            scout: 0
-        };
-    }
-    
     // Spawn priority logic
     let spawnPriority = null;
     
@@ -302,8 +298,6 @@ module.exports.loop = function() {
     else if (scouts.length < desiredScouts) {
         // If we need scouts and have reached the required creep milestones, spawn a scout
         // First at 3 creeps, then at 13, 23, etc.
-        const totalCreeps = Object.keys(Game.creeps).length;
-        
         if ((totalCreeps >= 3 && scouts.length === 0) || 
             (totalCreeps >= 13 && scouts.length === 1) ||
             (totalCreeps >= 23 && scouts.length === 2) ||
