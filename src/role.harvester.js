@@ -79,12 +79,12 @@ var roleHarvester = {
                 c.memory.sourceId === source.id
             ).length;
             
-            // Skip if this source is fully assigned
-            if (assignedHarvesters >= Memory.sources[source.id].miningSpots) continue;
+            // Skip if this source already has 2 harvesters (changed from checking against miningSpots)
+            if (assignedHarvesters >= 2) continue;
             
             // Calculate a score based on available spots and distance
             // Higher score is better
-            const availableSpots = Memory.sources[source.id].miningSpots - assignedHarvesters;
+            const availableSpots = Math.min(Memory.sources[source.id].miningSpots, 2) - assignedHarvesters;
             const distance = creep.pos.getRangeTo(source);
             
             // Prioritize available spots over distance
@@ -101,6 +101,44 @@ var roleHarvester = {
         if (bestSource) {
             creep.memory.sourceId = bestSource.id;
             return;
+        }
+        
+        // Check remote sources if no local sources are available
+        if (Memory.rooms) {
+            const homeRoom = creep.room.name;
+            
+            for (let roomName in Memory.rooms) {
+                // Skip current room
+                if (roomName === homeRoom) continue;
+                
+                const roomMemory = Memory.rooms[roomName];
+                // Only consider safe rooms
+                if (!roomMemory.isSafeForHarvesting) continue;
+                
+                // Check sources in this room
+                if (roomMemory.sources) {
+                    for (let sourceId in roomMemory.sources) {
+                        const source = roomMemory.sources[sourceId];
+                        
+                        // Skip sources with long round trip times
+                        if (source.roundTripTime && source.roundTripTime > 300) continue;
+                        
+                        // Count harvesters already assigned to this source
+                        const assignedHarvesters = _.filter(Game.creeps, c => 
+                            c.memory.role === 'harvester' && 
+                            c.memory.sourceId === sourceId
+                        ).length;
+                        
+                        // Skip if this source already has 2 harvesters
+                        if (assignedHarvesters >= 2) continue;
+                        
+                        // This remote source is available
+                        creep.memory.sourceId = sourceId;
+                        creep.memory.targetRoom = roomName;
+                        return;
+                    }
+                }
+            }
         }
         
         // If all sources are fully assigned, just pick the closest one

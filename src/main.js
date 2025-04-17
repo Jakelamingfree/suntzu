@@ -110,7 +110,6 @@ module.exports.loop = function() {
     // Find sources in the first room
     const firstRoom = Game.spawns['Spawn1'].room;
     const sources = firstRoom.find(FIND_SOURCES);
-    const sourceCount = sources.length;
     
     // Calculate available mining spots for each source
     let totalMiningSpots = 0;
@@ -170,81 +169,10 @@ module.exports.loop = function() {
     var haulers = _.filter(Game.creeps, (creep) => creep.memory.role == 'hauler');
     var scouts = _.filter(Game.creeps, (creep) => creep.memory.role == 'scout');
     
-    // Calculate desired number of harvesters - Max 2 per source from all available sources
-    let desiredHarvesters = 0;
-    let trackingSources = [];
+    // Get total mining spots across all available safe sources (local and remote)
+    const { desiredHarvesters, trackingSources } = calculateDesiredHarvesters();
     
-    // First check sources in current room
-    for (let sourceId in Memory.sources) {
-        const sourceMemory = Memory.sources[sourceId];
-        const idealHarvestersForSource = Math.min(sourceMemory.miningSpots, 2);
-        desiredHarvesters += idealHarvestersForSource;
-        trackingSources.push(sourceId);
-    }
-    
-    // Then check for sources in scouted rooms that are safe and within 2 room radius
-    if (Memory.rooms) {
-        // Home room for reference
-        const homeRoom = Game.spawns['Spawn1'].room.name;
-        
-        // First map out hostile rooms
-        const hostileRooms = [];
-        for (let roomName in Memory.rooms) {
-            const roomMemory = Memory.rooms[roomName];
-            if (roomMemory.hostiles && roomMemory.hostiles.count > 0) {
-                hostileRooms.push(roomName);
-            }
-        }
-        
-        // Then look for safe rooms within 2 room distance
-        for (let roomName in Memory.rooms) {
-            // Skip current room as we already counted those sources
-            if (roomName === homeRoom) continue;
-            
-            const roomMemory = Memory.rooms[roomName];
-            // Only consider safe rooms
-            if (!roomMemory.isSafeForHarvesting) continue;
-            
-            // Check if room is within 2 rooms of home
-            const distance = Game.map.getRoomLinearDistance(homeRoom, roomName);
-            if (distance > 2) continue;
-            
-            // Check if path goes through a hostile room
-            const route = Game.map.findRoute(homeRoom, roomName);
-            if (route === ERR_NO_PATH) continue;
-            
-            let pathThroughHostile = false;
-            for (let i = 0; i < route.length; i++) {
-                if (hostileRooms.includes(route[i].room)) {
-                    pathThroughHostile = true;
-                    break;
-                }
-            }
-            
-            if (pathThroughHostile) continue;
-            
-            // This room is valid - count its sources
-            if (roomMemory.sources) {
-                for (let sourceId in roomMemory.sources) {
-                    // Skip if this source is already counted
-                    if (trackingSources.includes(sourceId)) continue;
-                    
-                    const sourceMem = roomMemory.sources[sourceId];
-                    const idealHarvestersForSource = Math.min(sourceMem.miningSpots || 1, 2);
-                    desiredHarvesters += idealHarvestersForSource;
-                    trackingSources.push(sourceId);
-                }
-            }
-        }
-    }
-    
-    // If we have no sources in memory yet, log a warning and use default
-    if (desiredHarvesters === 0) {
-        console.log('⚠️ WARNING: No sources found in memory. Using default harvester count of 2.');
-        desiredHarvesters = 2; // Default until we discover sources
-    }
-    
-    // Calculate desired haulers - simple 2:1 ratio to harvesters
+    // Calculate desired haulers - strictly 2:1 ratio to harvesters
     const desiredHaulers = harvesters.length * 2;
     
     // Calculate desired number of scouts based on total creep count
@@ -256,11 +184,12 @@ module.exports.loop = function() {
         desiredScouts = 1 + Math.floor((totalCreeps - 3) / 10);
     }
     
-    // Calculate desired upgraders - formula: 1 upgrader for 4 harvesters, 2 for 5 harvesters, etc.
-    let desiredUpgraders = harvesters.length - 3;
-    
-    // Make sure we don't go negative
-    desiredUpgraders = Math.max(0, desiredUpgraders);
+    // Calculate desired upgraders - formula: 0 upgraders until 4 harvesters, then scale up
+    // 4 harvesters = 1 upgrader, 5 harvesters = 2 upgraders, etc.
+    let desiredUpgraders = 0;
+    if (harvesters.length >= 4) {
+        desiredUpgraders = harvesters.length - 3;
+    }
     
     console.log(`Current creeps: ${harvesters.length}/${desiredHarvesters} harvesters, ` + 
                 `${haulers.length}/${desiredHaulers} haulers, ` + 
@@ -270,7 +199,7 @@ module.exports.loop = function() {
     console.log(`Dead creeps awaiting replacement: H:${Memory.deadCreeps.harvester} Ha:${Memory.deadCreeps.hauler} U:${Memory.deadCreeps.upgrader} S:${Memory.deadCreeps.scout}`);
     console.log(`Expansion mode: ${Memory.gameState.expansionMode}, Safe sources: ${Memory.gameState.availableSources}`);
     
-    // Spawn priority logic
+    // Spawn priority logic - completely reworked
     let spawnPriority = null;
     
     // First priority: Replace any dead creeps
@@ -296,8 +225,7 @@ module.exports.loop = function() {
     }
     // Scout priority - based on total creep count
     else if (scouts.length < desiredScouts) {
-        // If we need scouts and have reached the required creep milestones, spawn a scout
-        // First at 3 creeps, then at 13, 23, etc.
+        // If we need scouts and have reached the required creep milestones
         if ((totalCreeps >= 3 && scouts.length === 0) || 
             (totalCreeps >= 13 && scouts.length === 1) ||
             (totalCreeps >= 23 && scouts.length === 2) ||
@@ -305,24 +233,24 @@ module.exports.loop = function() {
             spawnPriority = 'scout';
         }
     }
-    // Harvester/Hauler priority - maintain desired ratios
-    else if (harvesters.length < desiredHarvesters || haulers.length < desiredHaulers) {
-        // Need more harvesters
+    // Normal spawn order: Maintain harvester -> hauler -> upgrader ratio
+    else {
+        // First ensure we have enough harvesters
         if (harvesters.length < desiredHarvesters) {
             spawnPriority = 'harvester';
         }
-        // Need more haulers, but maintain the 1:2 ratio
-        else if (haulers.length < Math.min(desiredHaulers, harvesters.length * 2)) {
+        // Then ensure we maintain the 1:2 harvester:hauler ratio
+        else if (haulers.length < harvesters.length * 2) {
             spawnPriority = 'hauler';
         }
-    }
-    // Upgrader priority - once we have 4+ harvesters, spawn upgraders
-    else if (harvesters.length >= 4 && upgraders.length < desiredUpgraders) {
-        spawnPriority = 'upgrader';
-    }
-    // Default case - just keep adding upgraders if nothing else needed
-    else if (upgraders.length < 20) { // Cap at a reasonable number
-        spawnPriority = 'upgrader';
+        // Once we have 4+ harvesters and enough haulers, start adding upgraders
+        else if (harvesters.length >= 4 && upgraders.length < desiredUpgraders) {
+            spawnPriority = 'upgrader';
+        }
+        // Default case - just keep adding upgraders if nothing else needed
+        else if (upgraders.length < 20) { // Cap at a reasonable number
+            spawnPriority = 'upgrader';
+        }
     }
     
     // Debug logging for spawn priority
@@ -397,3 +325,86 @@ module.exports.loop = function() {
         }
     }
 };
+
+/**
+ * Calculate the desired number of harvesters based on available mining positions
+ * across all safe and accessible sources
+ */
+function calculateDesiredHarvesters() {
+    let desiredHarvesters = 0;
+    let trackingSources = [];
+    
+    // First check sources in current room
+    for (let sourceId in Memory.sources) {
+        const sourceMemory = Memory.sources[sourceId];
+        // Limit to 2 harvesters per source (changed from 3)
+        const idealHarvestersForSource = Math.min(sourceMemory.miningSpots || 0, 2);
+        desiredHarvesters += idealHarvestersForSource;
+        trackingSources.push(sourceId);
+    }
+    
+    // Then check for sources in scouted rooms that are safe and within 2 room radius
+    if (Memory.rooms) {
+        // Home room for reference
+        const homeRoom = Game.spawns['Spawn1'].room.name;
+        
+        // First map out hostile rooms
+        const hostileRooms = [];
+        for (let roomName in Memory.rooms) {
+            const roomMemory = Memory.rooms[roomName];
+            if (roomMemory.hostiles && roomMemory.hostiles.count > 0) {
+                hostileRooms.push(roomName);
+            }
+        }
+        
+        // Then look for safe rooms within 2 room distance
+        for (let roomName in Memory.rooms) {
+            // Skip current room as we already counted those sources
+            if (roomName === homeRoom) continue;
+            
+            const roomMemory = Memory.rooms[roomName];
+            // Only consider safe rooms
+            if (!roomMemory.isSafeForHarvesting) continue;
+            
+            // Check if room is within 2 rooms of home
+            const distance = Game.map.getRoomLinearDistance(homeRoom, roomName);
+            if (distance > 2) continue;
+            
+            // Check if path goes through a hostile room
+            const route = Game.map.findRoute(homeRoom, roomName);
+            if (route === ERR_NO_PATH) continue;
+            
+            let pathThroughHostile = false;
+            for (let i = 0; i < route.length; i++) {
+                if (hostileRooms.includes(route[i].room)) {
+                    pathThroughHostile = true;
+                    break;
+                }
+            }
+            
+            if (pathThroughHostile) continue;
+            
+            // This room is valid - count its sources
+            if (roomMemory.sources) {
+                for (let sourceId in roomMemory.sources) {
+                    // Skip if this source is already counted
+                    if (trackingSources.includes(sourceId)) continue;
+                    
+                    const sourceMem = roomMemory.sources[sourceId];
+                    // Limit to 2 harvesters per source (changed from 3)
+                    const idealHarvestersForSource = Math.min(sourceMem.miningSpots || 1, 2);
+                    desiredHarvesters += idealHarvestersForSource;
+                    trackingSources.push(sourceId);
+                }
+            }
+        }
+    }
+    
+    // If we have no sources in memory yet, use default
+    if (desiredHarvesters === 0) {
+        console.log('⚠️ WARNING: No sources found in memory. Using default harvester count of 2.');
+        desiredHarvesters = 2; // Default until we discover sources
+    }
+    
+    return { desiredHarvesters, trackingSources };
+}
