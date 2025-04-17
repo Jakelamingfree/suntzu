@@ -6,9 +6,19 @@ var roleScout = require('role.scout');
 
 // This function runs every tick
 module.exports.loop = function() {
-    // Garbage collection: remove dead creeps from memory
+    // Garbage collection: remove dead creeps from memory and track them
     for (var creepName in Memory.creeps) {
         if (!Game.creeps[creepName]) {
+            // Track the type of creep that died for replacement
+            const role = Memory.creeps[creepName].role;
+            if (role) {
+                if (!Memory.deadCreeps[role]) {
+                    Memory.deadCreeps[role] = 0;
+                }
+                Memory.deadCreeps[role]++;
+                console.log(`Creep died: ${role} (${creepName}). Queued for replacement.`);
+            }
+            
             delete Memory.creeps[creepName];
             console.log('Clearing non-existing creep memory:', creepName);
             
@@ -37,7 +47,7 @@ module.exports.loop = function() {
     }
     
     // Count available sources across all rooms
-    let availableSources = 0;
+    let availableSafeSources = 0;
     let totalSafeHarvestingSources = 0;
     
     if (Memory.rooms) {
@@ -51,10 +61,10 @@ module.exports.loop = function() {
                     // Count sources with reasonable round trip times (less than 300)
                     const source = roomMemory.sources[sourceId];
                     if (source.roundTripTime && source.roundTripTime < 300) {
-                        availableSources++;
+                        availableSafeSources++;
                     } else if (!source.isRemote) {
                         // Local sources are always available
-                        availableSources++;
+                        availableSafeSources++;
                     }
                 }
             }
@@ -62,16 +72,16 @@ module.exports.loop = function() {
     }
     
     // Update game state with available sources
-    Memory.gameState.availableSources = availableSources;
+    Memory.gameState.availableSources = availableSafeSources;
     
     // Detect when scouting is complete and make a decision about expansion mode
     if (Memory.gameState.scoutingComplete && 
         !Memory.gameState.expansionDecisionMade) {
         
-        console.log(`Scouting complete. Available safe sources: ${availableSources}`);
+        console.log(`Scouting complete. Available safe sources: ${availableSafeSources}`);
         
         // Determine if we can scale or need to cap
-        if (availableSources < 2) {
+        if (availableSafeSources < 2) {
             Memory.gameState.expansionMode = 'capped';
             console.log('EXPANSION MODE SET: CAPPED - Limited resources available');
         } else {
@@ -145,263 +155,220 @@ module.exports.loop = function() {
     var haulers = _.filter(Game.creeps, (creep) => creep.memory.role == 'hauler');
     var scouts = _.filter(Game.creeps, (creep) => creep.memory.role == 'scout');
     
-    // Calculate desired number of harvesters - 3x max per source
+    // Calculate desired number of harvesters - Max 2 per source from all available sources
     let desiredHarvesters = 0;
+    let trackingSources = [];
+    
+    // First check sources in current room
     for (let sourceId in Memory.sources) {
         const sourceMemory = Memory.sources[sourceId];
-        const idealHarvestersForSource = Math.min(sourceMemory.miningSpots, 3);
+        const idealHarvestersForSource = Math.min(sourceMemory.miningSpots, 2);
         desiredHarvesters += idealHarvestersForSource;
+        trackingSources.push(sourceId);
+    }
+    
+    // Then check for sources in scouted rooms that are safe and within 2 room radius
+    if (Memory.rooms) {
+        // Home room for reference
+        const homeRoom = Game.spawns['Spawn1'].room.name;
+        
+        // First map out hostile rooms
+        const hostileRooms = [];
+        for (let roomName in Memory.rooms) {
+            const roomMemory = Memory.rooms[roomName];
+            if (roomMemory.hostiles && roomMemory.hostiles.count > 0) {
+                hostileRooms.push(roomName);
+            }
+        }
+        
+        // Then look for safe rooms within 2 room distance
+        for (let roomName in Memory.rooms) {
+            // Skip current room as we already counted those sources
+            if (roomName === homeRoom) continue;
+            
+            const roomMemory = Memory.rooms[roomName];
+            // Only consider safe rooms
+            if (!roomMemory.isSafeForHarvesting) continue;
+            
+            // Check if room is within 2 rooms of home
+            const distance = Game.map.getRoomLinearDistance(homeRoom, roomName);
+            if (distance > 2) continue;
+            
+            // Check if path goes through a hostile room
+            const route = Game.map.findRoute(homeRoom, roomName);
+            if (route === ERR_NO_PATH) continue;
+            
+            let pathThroughHostile = false;
+            for (let i = 0; i < route.length; i++) {
+                if (hostileRooms.includes(route[i].room)) {
+                    pathThroughHostile = true;
+                    break;
+                }
+            }
+            
+            if (pathThroughHostile) continue;
+            
+            // This room is valid - count its sources
+            if (roomMemory.sources) {
+                for (let sourceId in roomMemory.sources) {
+                    // Skip if this source is already counted
+                    if (trackingSources.includes(sourceId)) continue;
+                    
+                    const sourceMem = roomMemory.sources[sourceId];
+                    const idealHarvestersForSource = Math.min(sourceMem.miningSpots || 1, 2);
+                    desiredHarvesters += idealHarvestersForSource;
+                    trackingSources.push(sourceId);
+                }
+            }
+        }
     }
     
     // If we have no sources in memory yet, log a warning and use default
     if (desiredHarvesters === 0) {
-        console.log('⚠️ WARNING: No sources found in memory. Using default harvester count of 3.');
-        desiredHarvesters = 3; // Default until we discover sources
+        console.log('⚠️ WARNING: No sources found in memory. Using default harvester count of 2.');
+        desiredHarvesters = 2; // Default until we discover sources
     }
     
-    // Calculate desired haulers based on active energy production
-    // More sophisticated calculation based on energy production and distance
-    let totalEnergyProduction = 0;
-    let avgRoundTripTime = 0;
-    let sourcesWithRoundTrip = 0;
+    // Calculate desired haulers - simple 2:1 ratio to harvesters
+    const desiredHaulers = harvesters.length * 2;
     
-    // Calculate potential energy production and hauling needs
-    for (let sourceId in Memory.sources) {
-        const sourceMemory = Memory.sources[sourceId];
-        const harvestersAtSource = _.filter(Game.creeps, c => 
-            c.memory.role === 'harvester' && c.memory.sourceId === sourceId
-        ).length;
-        
-        // Each harvester with 2 WORK parts produces 4 energy per tick (2 per WORK part)
-        const sourceProduction = harvestersAtSource * 4;
-        totalEnergyProduction += sourceProduction;
-        
-        // Track round trip time for efficiency calculation
-        if (sourceMemory.roundTripTime) {
-            avgRoundTripTime += sourceMemory.roundTripTime;
-            sourcesWithRoundTrip++;
-        }
+    // Calculate desired number of scouts based on total creep count
+    // First scout after 3 creeps, then 1 more after every 10 creeps
+    const totalCreeps = Object.keys(Game.creeps).length;
+    let desiredScouts = 0;
+    
+    if (totalCreeps >= 3) {
+        desiredScouts = 1 + Math.floor((totalCreeps - 3) / 10);
     }
     
-    // Calculate average round trip time
-    if (sourcesWithRoundTrip > 0) {
-        avgRoundTripTime /= sourcesWithRoundTrip;
-    } else {
-        avgRoundTripTime = 50; // Default assumption
-    }
+    // Calculate desired upgraders - formula: 1 upgrader for 4 harvesters, 2 for 5 harvesters, etc.
+    let desiredUpgraders = harvesters.length - 3;
     
-    // Each hauler can carry 150 energy (3 CARRY parts)
-    // Calculate how many haulers needed to transport energy efficiently
-    // Factor in round trip time - longer trips need more haulers
-    let desiredHaulers;
-    if (totalEnergyProduction > 0) {
-        // Base formula: (energy produced per tick × avg round trip time) ÷ hauler capacity
-        desiredHaulers = Math.ceil((totalEnergyProduction * avgRoundTripTime) / 150);
-        
-        // Ensure at least one hauler per active harvester, but not more than 2x harvesters
-        desiredHaulers = Math.max(1, Math.min(desiredHaulers, harvesters.length * 2));
-    } else {
-        // Default if we can't calculate production yet
-        desiredHaulers = harvesters.length; // Start with 1:1 ratio
-    }
-    
-    // Calculate desired number of scouts based on upgraders (1 per 4 upgraders)
-    // Plus an initial scout after first hauler
-    let desiredScouts = Math.floor(upgraders.length / 4);
-    
-    // Account for the initial scout - we only use one memory location now
-    if (haulers.length > 0 && !Memory.spawnSequence.initialScoutSpawned) {
-        desiredScouts += 1;
-    }
-    
-    // Smart upgrader calculation based on the expansion mode
-    let desiredUpgraders;
-    
-    if (Memory.gameState.expansionMode === 'scaling') {
-        // CASE 1: Scaling mode
-        if (harvesters.length >= 4) {
-            // Once we have 4 harvesters, start with 4 upgraders
-            // and then maintain 1:1 ratio thereafter
-            desiredUpgraders = Math.max(4, harvesters.length);
-        } else {
-            // Still focusing on harvesters
-            desiredUpgraders = 0;
-        }
-    } else {
-        // CASE 2: Capped mode - focus on upgraders when all sources are taken
-        const totalMiningPositions = _.sum(Memory.sources, source => Math.min(source.miningSpots, 3));
-        
-        if (harvesters.length >= totalMiningPositions * 0.75) {
-            // We've filled most available harvester positions, focus on upgraders
-            desiredUpgraders = Math.max(1, harvesters.length * 2); // More aggressive upgrader production
-        } else {
-            // Still need harvesters
-            desiredUpgraders = 0;
-        }
-    }
+    // Make sure we don't go negative
+    desiredUpgraders = Math.max(0, desiredUpgraders);
     
     console.log(`Current creeps: ${harvesters.length}/${desiredHarvesters} harvesters, ` + 
                 `${haulers.length}/${desiredHaulers} haulers, ` + 
                 `${upgraders.length}/${desiredUpgraders} upgraders, ` +
                 `${scouts.length}/${desiredScouts} scouts`);
-    console.log(`Energy production: ~${totalEnergyProduction}/tick, Avg trip: ${Math.round(avgRoundTripTime)}`);
-    console.log(`Expansion mode: ${Memory.gameState.expansionMode}, Available sources: ${Memory.gameState.availableSources}`);
+    console.log(`Total creeps: ${Object.keys(Game.creeps).length}, Sources available: ${trackingSources.length}`);
+    console.log(`Dead creeps awaiting replacement: H:${Memory.deadCreeps.harvester} Ha:${Memory.deadCreeps.hauler} U:${Memory.deadCreeps.upgrader} S:${Memory.deadCreeps.scout}`);
+    console.log(`Expansion mode: ${Memory.gameState.expansionMode}, Safe sources: ${Memory.gameState.availableSources}`);
     
     // Initialize spawn sequence memory if it doesn't exist
     if (!Memory.spawnSequence) {
         Memory.spawnSequence = {
             lastSpawnType: null,
-            harvesterCount: 0,
-            haulerCount: 0,
-            upgraderCount: 0,
-            scoutCount: 0,
-            initialScoutSpawned: false,
-            lastUpgraderBeforeScout: 0 // Track upgraders before scout
+            totalSpawnCount: 0,
+            deadCreepTypes: {} // Track types of creeps that have died
         };
     }
     
-    // Spawn priority logic with alternating pattern
+    // Track dead creeps from memory cleanup
+    if (!Memory.deadCreeps) {
+        Memory.deadCreeps = {
+            harvester: 0,
+            hauler: 0,
+            upgrader: 0,
+            scout: 0
+        };
+    }
+    
+    // Spawn priority logic
     let spawnPriority = null;
     
-    // Emergency case: Always have at least one harvester first
-    if (harvesters.length === 0) {
+    // First priority: Replace any dead creeps
+    if (Memory.deadCreeps.harvester > 0 && harvesters.length < desiredHarvesters) {
         spawnPriority = 'harvester';
-        Memory.spawnSequence.lastSpawnType = 'harvester';
-        Memory.spawnSequence.harvesterCount++;
+        Memory.deadCreeps.harvester--;
     }
-    // Initial hauler
-    else if (haulers.length === 0) {
+    else if (Memory.deadCreeps.hauler > 0 && haulers.length < desiredHaulers) {
         spawnPriority = 'hauler';
-        Memory.spawnSequence.lastSpawnType = 'hauler';
-        Memory.spawnSequence.haulerCount++;
+        Memory.deadCreeps.hauler--;
     }
-    // Initial scout after first hauler - only need to check one location
-    else if (!Memory.spawnSequence.initialScoutSpawned) {
+    else if (Memory.deadCreeps.upgrader > 0 && upgraders.length < desiredUpgraders) {
+        spawnPriority = 'upgrader';
+        Memory.deadCreeps.upgrader--;
+    }
+    else if (Memory.deadCreeps.scout > 0 && scouts.length < desiredScouts) {
         spawnPriority = 'scout';
-        Memory.spawnSequence.lastSpawnType = 'scout';
-        Memory.spawnSequence.scoutCount++;
-        Memory.spawnSequence.initialScoutSpawned = true;
+        Memory.deadCreeps.scout--;
     }
-    // Alternating pattern for harvester/hauler priority
-    else {
-        // Calculate the total number of alternate spawns we've done
-        const totalAlternateSpawns = Memory.spawnSequence.harvesterCount + Memory.spawnSequence.haulerCount;
+    // Emergency case: Always have at least one harvester
+    else if (harvesters.length === 0) {
+        spawnPriority = 'harvester';
+    }
+    // Scout priority - based on total creep count
+    else if (scouts.length < desiredScouts) {
+        // If we need scouts and have reached the required creep milestones, spawn a scout
+        // First at 3 creeps, then at 13, 23, etc.
+        const totalCreeps = Object.keys(Game.creeps).length;
         
-        // Harvester/Hauler priority - aim for 1:2 ratio with alternating pattern
-        if (harvesters.length < desiredHarvesters || haulers.length < desiredHaulers) {
-            // If last spawn was hauler, and we need harvesters, spawn harvester
-            if (Memory.spawnSequence.lastSpawnType === 'hauler' && harvesters.length < desiredHarvesters) {
-                spawnPriority = 'harvester';
-                Memory.spawnSequence.lastSpawnType = 'harvester';
-                Memory.spawnSequence.harvesterCount++;
-            }
-            // If last spawn was harvester or scout, spawn hauler (to maintain 1:2 ratio)
-            else if ((Memory.spawnSequence.lastSpawnType === 'harvester' || 
-                     Memory.spawnSequence.lastSpawnType === 'scout' || 
-                     Memory.spawnSequence.lastSpawnType === 'upgrader') && 
-                     haulers.length < desiredHaulers) {
-                spawnPriority = 'hauler';
-                Memory.spawnSequence.lastSpawnType = 'hauler';
-                Memory.spawnSequence.haulerCount++;
-            }
-            // If we still need haulers but last spawn was also hauler, check if we should spawn harvester
-            else if (haulers.length < desiredHaulers && Memory.spawnSequence.lastSpawnType === 'hauler') {
-                // After two consecutive haulers, try to spawn a harvester if needed
-                if (harvesters.length < desiredHarvesters && 
-                    Memory.spawnSequence.haulerCount % 2 === 0) {
-                    spawnPriority = 'harvester';
-                    Memory.spawnSequence.lastSpawnType = 'harvester';
-                    Memory.spawnSequence.harvesterCount++;
-                } else {
-                    spawnPriority = 'hauler';
-                    Memory.spawnSequence.lastSpawnType = 'hauler';
-                    Memory.spawnSequence.haulerCount++;
-                }
-            }
-            // Fallback to ensure we always choose something if needed
-            else if (harvesters.length < desiredHarvesters) {
-                spawnPriority = 'harvester';
-                Memory.spawnSequence.lastSpawnType = 'harvester';
-                Memory.spawnSequence.harvesterCount++;
-            } 
-            else if (haulers.length < desiredHaulers) {
-                spawnPriority = 'hauler';
-                Memory.spawnSequence.lastSpawnType = 'hauler';
-                Memory.spawnSequence.haulerCount++;
-            }
+        if ((totalCreeps >= 3 && scouts.length === 0) || 
+            (totalCreeps >= 13 && scouts.length === 1) ||
+            (totalCreeps >= 23 && scouts.length === 2) ||
+            (totalCreeps >= 33 && scouts.length === 3)) {
+            spawnPriority = 'scout';
         }
-        // Once harvester/hauler needs are met, handle upgraders and scouts
-        else if (upgraders.length < desiredUpgraders || scouts.length < desiredScouts) {
-            // Track when we've spawned 4 upgraders in a row
-            if (Memory.spawnSequence.lastSpawnType === 'upgrader') {
-                Memory.spawnSequence.lastUpgraderBeforeScout++;
-            } else {
-                Memory.spawnSequence.lastUpgraderBeforeScout = 0;
-            }
-            
-            // After every 4 upgraders, spawn a scout if needed
-            if (Memory.spawnSequence.lastUpgraderBeforeScout >= 4 && scouts.length < desiredScouts) {
-                spawnPriority = 'scout';
-                Memory.spawnSequence.lastSpawnType = 'scout';
-                Memory.spawnSequence.scoutCount++;
-                Memory.spawnSequence.lastUpgraderBeforeScout = 0;
-            }
-            // Otherwise, spawn upgraders
-            else if (upgraders.length < desiredUpgraders) {
-                spawnPriority = 'upgrader';
-                Memory.spawnSequence.lastSpawnType = 'upgrader';
-                Memory.spawnSequence.upgraderCount++;
-            }
-            // If we need scouts but not exactly after 4 upgraders
-            else if (scouts.length < desiredScouts) {
-                spawnPriority = 'scout';
-                Memory.spawnSequence.lastSpawnType = 'scout';
-                Memory.spawnSequence.scoutCount++;
-            }
+    }
+    // Harvester/Hauler priority - maintain desired ratios
+    else if (harvesters.length < desiredHarvesters || haulers.length < desiredHaulers) {
+        // Need more harvesters
+        if (harvesters.length < desiredHarvesters) {
+            spawnPriority = 'harvester';
         }
-        // Default case for capped mode - just keep adding upgraders
-        else if (Memory.gameState.expansionMode === 'capped') {
-            spawnPriority = 'upgrader';
-            Memory.spawnSequence.lastSpawnType = 'upgrader';
-            Memory.spawnSequence.upgraderCount++;
+        // Need more haulers, but maintain the 1:2 ratio
+        else if (haulers.length < Math.min(desiredHaulers, harvesters.length * 2)) {
+            spawnPriority = 'hauler';
         }
+    }
+    // Upgrader priority - once we have 4+ harvesters, spawn upgraders
+    else if (harvesters.length >= 4 && upgraders.length < desiredUpgraders) {
+        spawnPriority = 'upgrader';
+    }
+    // Default case - just keep adding upgraders if nothing else needed
+    else if (upgraders.length < 20) { // Cap at a reasonable number
+        spawnPriority = 'upgrader';
     }
     
-    // Debug logging for spawn sequence
-    console.log(`Spawn sequence stats - Last: ${Memory.spawnSequence.lastSpawnType}, ` +
-                `H:${Memory.spawnSequence.harvesterCount}, ` +
-                `Ha:${Memory.spawnSequence.haulerCount}, ` +
-                `U:${Memory.spawnSequence.upgraderCount}, ` +
-                `S:${Memory.spawnSequence.scoutCount}, ` +
-                `UBS:${Memory.spawnSequence.lastUpgraderBeforeScout}`);
+    // Debug logging for spawn priority
+    console.log(`Next spawn priority: ${spawnPriority || 'none'}, Total spawns: ${Memory.spawnSequence.totalSpawnCount}`);
 
     
     // Spawn the creep based on priority
     if (spawnPriority !== null) {
         var newName = spawnPriority.charAt(0).toUpperCase() + spawnPriority.slice(1) + Game.time;
+        let spawnResult;
         
         if (spawnPriority === 'harvester') {
-            Game.spawns['Spawn1'].spawnCreep([WORK, WORK, MOVE], newName, { 
+            spawnResult = Game.spawns['Spawn1'].spawnCreep([WORK, WORK, MOVE], newName, { 
                 memory: { role: 'harvester' } 
             });
         }
         else if (spawnPriority === 'hauler') {
-            Game.spawns['Spawn1'].spawnCreep([CARRY, CARRY, CARRY, MOVE, MOVE, MOVE], newName, { 
+            spawnResult = Game.spawns['Spawn1'].spawnCreep([CARRY, CARRY, CARRY, MOVE, MOVE, MOVE], newName, { 
                 memory: { role: 'hauler' } 
             });
         }
         else if (spawnPriority === 'upgrader') {
-            Game.spawns['Spawn1'].spawnCreep([WORK, CARRY, CARRY, MOVE], newName, { 
+            spawnResult = Game.spawns['Spawn1'].spawnCreep([WORK, CARRY, CARRY, MOVE], newName, { 
                 memory: { role: 'upgrader', working: false } 
             });
         }
         else if (spawnPriority === 'scout') {
-            Game.spawns['Spawn1'].spawnCreep([MOVE, MOVE, MOVE], newName, { 
+            spawnResult = Game.spawns['Spawn1'].spawnCreep([MOVE, MOVE, MOVE], newName, { 
                 memory: { 
                     role: 'scout',
                     homeRoom: Game.spawns['Spawn1'].room.name
                 } 
             });
+        }
+        
+        // If spawn was successful, update the spawn count
+        if (spawnResult === OK) {
+            Memory.spawnSequence.lastSpawnType = spawnPriority;
+            Memory.spawnSequence.totalSpawnCount++;
+            console.log(`🛠️ Spawning new ${spawnPriority}: ${newName}`);
         }
     }
     
