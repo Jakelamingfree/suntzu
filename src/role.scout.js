@@ -19,7 +19,19 @@ var roleScout = {
             // Move to target room
             if (creep.memory.targetRoom) {
                 const exitDir = Game.map.findExit(creep.room, creep.memory.targetRoom);
+                if (exitDir === ERR_NO_PATH) {
+                    console.log(`⚠️ Scout ${creep.name} cannot find path to room ${creep.memory.targetRoom}. Finding a new target.`);
+                    this.findNextRoom(creep);
+                    return;
+                }
+                
                 const exit = creep.pos.findClosestByPath(exitDir);
+                if (!exit) {
+                    console.log(`⚠️ Scout ${creep.name} cannot find exit to room ${creep.memory.targetRoom}. Finding a new target.`);
+                    this.findNextRoom(creep);
+                    return;
+                }
+                
                 creep.moveTo(exit, { visualizePathStyle: { stroke: '#ffaa00' } });
             } else {
                 // Find a room to scout if we don't have one
@@ -132,6 +144,13 @@ var roleScout = {
                     );
                     Memory.rooms[creep.room.name].sources[source.id].roundTripTime = roundTripTime;
                     Memory.rooms[creep.room.name].sources[source.id].isRemote = true;
+                    
+                    // Log if the path is too long or doesn't exist
+                    if (roundTripTime === Infinity) {
+                        console.log(`⚠️ Scout ${creep.name} found source in ${creep.room.name} with no valid path to home.`);
+                    } else if (roundTripTime > 300) {
+                        console.log(`ℹ️ Scout ${creep.name} found remote source in ${creep.room.name} with long round trip (${roundTripTime}).`);
+                    }
                 } else {
                     // Local source calculation
                     const pathToSource = homeSpawn.pos.findPathTo(source.pos);
@@ -254,6 +273,7 @@ var roleScout = {
         const route = Game.map.findRoute(sourceRoom, spawnRoom);
         
         if (route === ERR_NO_PATH) {
+            console.log(`⚠️ No valid path found between ${sourceRoom} and ${spawnRoom}`);
             return Infinity; // No path available
         }
         
@@ -340,6 +360,7 @@ var roleScout = {
                     creep.memory.targetRoom = roomName; // First go to the connecting room
                     creep.memory.nextTargetRoom = adjacentRoom; // Then to the unsurveyed room
                     creep.memory.roomSurveyed = false;
+                    console.log(`🔍 Scout ${creep.name} will travel through ${roomName} to explore ${adjacentRoom}`);
                     return;
                 }
             }
@@ -350,6 +371,7 @@ var roleScout = {
         
         // Set a flag indicating all accessible rooms have been surveyed
         Memory.allRoomsSurveyed = true;
+        console.log(`🌍 Scout ${creep.name} reports all accessible rooms have been surveyed!`);
     }
 };
 

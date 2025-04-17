@@ -11,16 +11,37 @@ var roleHarvester = {
         
         // Get the source using the stored ID
         const source = Game.getObjectById(creep.memory.sourceId);
+        if (!source) {
+            // If source no longer exists or is invalid, reassign
+            delete creep.memory.sourceId;
+            delete creep.memory.miningPos;
+            return;
+        }
         
         // If we have an assigned mining position
         if (creep.memory.miningPos) {
             const pos = creep.memory.miningPos;
             // If we're at our mining position, harvest
             if (creep.pos.x === pos.x && creep.pos.y === pos.y) {
-                creep.harvest(source);
-                if (creep.store.getUsedCapacity(RESOURCE_ENERGY) > 0) {
-                    // Immediately drop the harvested energy on the ground
-                    creep.drop(RESOURCE_ENERGY);
+                const harvestResult = creep.harvest(source);
+                if (harvestResult === OK) {
+                    if (creep.store.getUsedCapacity(RESOURCE_ENERGY) > 0) {
+                        // Check for a container at our position
+                        const containers = creep.pos.findInRange(FIND_STRUCTURES, 0, {
+                            filter: s => s.structureType === STRUCTURE_CONTAINER
+                        });
+                        
+                        if (containers.length > 0) {
+                            // Transfer to container
+                            creep.transfer(containers[0], RESOURCE_ENERGY);
+                        } else {
+                            // Immediately drop the harvested energy on the ground
+                            creep.drop(RESOURCE_ENERGY);
+                        }
+                    }
+                } else if (harvestResult === ERR_NOT_ENOUGH_RESOURCES) {
+                    // Source is empty, wait patiently
+                    creep.say('⏳');
                 }
             } else {
                 // Move to our assigned mining position
@@ -44,8 +65,8 @@ var roleHarvester = {
     assignSource: function(creep) {
         // Get all sources in the room
         const sources = creep.room.find(FIND_SOURCES);
-        let bestScore = -1;
         let bestSource = null;
+        let bestScore = -Infinity;
         
         // Score each source based on available spots and distance
         for (let source of sources) {
@@ -65,14 +86,21 @@ var roleHarvester = {
             // Higher score is better
             const availableSpots = Memory.sources[source.id].miningSpots - assignedHarvesters;
             const distance = creep.pos.getRangeTo(source);
-            const score = availableSpots * 10 - distance; // Prioritize available spots over distance
-        
-
-            // If there's room for more harvesters at this source
-            if (assignedHarvesters < Memory.sources[source.id].miningSpots) {
-                creep.memory.sourceId = source.id;
-                return;
+            
+            // Prioritize available spots over distance
+            const score = availableSpots * 10 - distance;
+            
+            // Update best source if this one has a better score
+            if (score > bestScore) {
+                bestScore = score;
+                bestSource = source;
             }
+        }
+        
+        // Use the best scoring source if we found one
+        if (bestSource) {
+            creep.memory.sourceId = bestSource.id;
+            return;
         }
         
         // If all sources are fully assigned, just pick the closest one

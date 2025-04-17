@@ -159,15 +159,58 @@ module.exports.loop = function() {
         desiredHarvesters = 3; // Default until we discover sources
     }
     
-    // Calculate desired haulers - 2x the number of harvesters
-    const desiredHaulers = harvesters.length * 2;
+    // Calculate desired haulers based on active energy production
+    // More sophisticated calculation based on energy production and distance
+    let totalEnergyProduction = 0;
+    let avgRoundTripTime = 0;
+    let sourcesWithRoundTrip = 0;
+    
+    // Calculate potential energy production and hauling needs
+    for (let sourceId in Memory.sources) {
+        const sourceMemory = Memory.sources[sourceId];
+        const harvestersAtSource = _.filter(Game.creeps, c => 
+            c.memory.role === 'harvester' && c.memory.sourceId === sourceId
+        ).length;
+        
+        // Each harvester with 2 WORK parts produces 4 energy per tick (2 per WORK part)
+        const sourceProduction = harvestersAtSource * 4;
+        totalEnergyProduction += sourceProduction;
+        
+        // Track round trip time for efficiency calculation
+        if (sourceMemory.roundTripTime) {
+            avgRoundTripTime += sourceMemory.roundTripTime;
+            sourcesWithRoundTrip++;
+        }
+    }
+    
+    // Calculate average round trip time
+    if (sourcesWithRoundTrip > 0) {
+        avgRoundTripTime /= sourcesWithRoundTrip;
+    } else {
+        avgRoundTripTime = 50; // Default assumption
+    }
+    
+    // Each hauler can carry 150 energy (3 CARRY parts)
+    // Calculate how many haulers needed to transport energy efficiently
+    // Factor in round trip time - longer trips need more haulers
+    let desiredHaulers;
+    if (totalEnergyProduction > 0) {
+        // Base formula: (energy produced per tick × avg round trip time) ÷ hauler capacity
+        desiredHaulers = Math.ceil((totalEnergyProduction * avgRoundTripTime) / 150);
+        
+        // Ensure at least one hauler per active harvester, but not more than 2x harvesters
+        desiredHaulers = Math.max(1, Math.min(desiredHaulers, harvesters.length * 2));
+    } else {
+        // Default if we can't calculate production yet
+        desiredHaulers = harvesters.length; // Start with 1:1 ratio
+    }
     
     // Calculate desired number of scouts based on upgraders (1 per 4 upgraders)
     // Plus an initial scout after first hauler
     let desiredScouts = Math.floor(upgraders.length / 4);
     
-    // Account for the initial scout
-    if (haulers.length > 0 && !Memory.gameState.initialScoutSpawned) {
+    // Account for the initial scout - we only use one memory location now
+    if (haulers.length > 0 && !Memory.spawnSequence.initialScoutSpawned) {
         desiredScouts += 1;
     }
     
@@ -201,6 +244,7 @@ module.exports.loop = function() {
                 `${haulers.length}/${desiredHaulers} haulers, ` + 
                 `${upgraders.length}/${desiredUpgraders} upgraders, ` +
                 `${scouts.length}/${desiredScouts} scouts`);
+    console.log(`Energy production: ~${totalEnergyProduction}/tick, Avg trip: ${Math.round(avgRoundTripTime)}`);
     console.log(`Expansion mode: ${Memory.gameState.expansionMode}, Available sources: ${Memory.gameState.availableSources}`);
     
     // Initialize spawn sequence memory if it doesn't exist
@@ -231,13 +275,12 @@ module.exports.loop = function() {
         Memory.spawnSequence.lastSpawnType = 'hauler';
         Memory.spawnSequence.haulerCount++;
     }
-    // Initial scout after first hauler
+    // Initial scout after first hauler - only need to check one location
     else if (!Memory.spawnSequence.initialScoutSpawned) {
         spawnPriority = 'scout';
         Memory.spawnSequence.lastSpawnType = 'scout';
         Memory.spawnSequence.scoutCount++;
         Memory.spawnSequence.initialScoutSpawned = true;
-        Memory.gameState.initialScoutSpawned = true;
     }
     // Alternating pattern for harvester/hauler priority
     else {
