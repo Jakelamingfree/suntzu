@@ -199,11 +199,15 @@ module.exports.loop = function() {
     console.log(`Dead creeps awaiting replacement: H:${Memory.deadCreeps.harvester} Ha:${Memory.deadCreeps.hauler} U:${Memory.deadCreeps.upgrader} S:${Memory.deadCreeps.scout}`);
     console.log(`Expansion mode: ${Memory.gameState.expansionMode}, Safe sources: ${Memory.gameState.availableSources}`);
     
-    // Spawn priority logic - completely reworked
+    // Completely reworked spawn priority logic
     let spawnPriority = null;
     
-    // First priority: Replace any dead creeps
-    if (Memory.deadCreeps.harvester > 0 && harvesters.length < desiredHarvesters) {
+    // First priority: Emergency harvester if none exist
+    if (harvesters.length === 0) {
+        spawnPriority = 'harvester';
+    }
+    // Second priority: Replace any dead creeps
+    else if (Memory.deadCreeps.harvester > 0 && harvesters.length < desiredHarvesters) {
         spawnPriority = 'harvester';
         Memory.deadCreeps.harvester--;
     }
@@ -219,43 +223,60 @@ module.exports.loop = function() {
         spawnPriority = 'scout';
         Memory.deadCreeps.scout--;
     }
-    // Emergency case: Always have at least one harvester
-    else if (harvesters.length === 0) {
-        spawnPriority = 'harvester';
-    }
-    // Scout priority - based on total creep count
-    else if (scouts.length < desiredScouts) {
-        // If we need scouts and have reached the required creep milestones
-        if ((totalCreeps >= 3 && scouts.length === 0) || 
-            (totalCreeps >= 13 && scouts.length === 1) ||
-            (totalCreeps >= 23 && scouts.length === 2) ||
-            (totalCreeps >= 33 && scouts.length === 3)) {
-            spawnPriority = 'scout';
-        }
-    }
-    // Normal spawn order: Maintain harvester -> hauler -> upgrader ratio
+    // Normal spawn order - Maintain strict harvester:hauler ratio with alternating spawns
     else {
-        // First ensure we have enough harvesters
-        if (harvesters.length < desiredHarvesters) {
-            spawnPriority = 'harvester';
+        // Get total spawn count for determining pattern
+        const spawnCount = Memory.spawnSequence.totalSpawnCount;
+        
+        // Determine pattern based on spawn count to ensure h:h:h:s alternates with haulers
+        // Pattern should be h, hau, hau, s, h, hau, hau, repeat (then add upgraders)
+        
+        // For first few spawns, follow specific pattern
+        if (spawnCount < 7) {
+            // Specific pattern for first spawns:
+            // 0: harvester, 1: hauler, 2: hauler, 3: scout, 
+            // 4: harvester, 5: hauler, 6: hauler, ...
+            const initialPatterns = ['harvester', 'hauler', 'hauler', 'scout', 'harvester', 'hauler', 'hauler'];
+            spawnPriority = initialPatterns[spawnCount];
+            
+            // Check if we have enough of this type already
+            if (spawnPriority === 'harvester' && harvesters.length >= desiredHarvesters) {
+                spawnPriority = null; // Skip if we already have enough
+            } else if (spawnPriority === 'hauler' && haulers.length >= desiredHaulers) {
+                spawnPriority = null; // Skip if we already have enough
+            } else if (spawnPriority === 'scout' && scouts.length >= desiredScouts) {
+                spawnPriority = null; // Skip if we already have enough
+            }
         }
-        // Then ensure we maintain the 1:2 harvester:hauler ratio
-        else if (haulers.length < harvesters.length * 2) {
-            spawnPriority = 'hauler';
-        }
-        // Once we have 4+ harvesters and enough haulers, start adding upgraders
-        else if (harvesters.length >= 4 && upgraders.length < desiredUpgraders) {
-            spawnPriority = 'upgrader';
-        }
-        // Default case - just keep adding upgraders if nothing else needed
-        else if (upgraders.length < 20) { // Cap at a reasonable number
-            spawnPriority = 'upgrader';
+        // Then follow dynamic pattern based on what we need
+        else {
+            // Scout priority - based on total creep milestones
+            if (scouts.length < desiredScouts && 
+                ((totalCreeps >= 13 && scouts.length === 1) ||
+                 (totalCreeps >= 23 && scouts.length === 2) ||
+                 (totalCreeps >= 33 && scouts.length === 3))) {
+                spawnPriority = 'scout';
+            }
+            // Keep harvester:hauler ratio balanced first
+            else if (harvesters.length < desiredHarvesters) {
+                spawnPriority = 'harvester';
+            }
+            else if (haulers.length < harvesters.length * 2) {
+                spawnPriority = 'hauler';
+            }
+            // Once we have 4+ harvesters and enough haulers, start adding upgraders
+            else if (harvesters.length >= 4 && upgraders.length < desiredUpgraders) {
+                spawnPriority = 'upgrader';
+            }
+            // Default case - just keep adding upgraders if nothing else needed
+            else if (upgraders.length < 20) { // Cap at a reasonable number
+                spawnPriority = 'upgrader';
+            }
         }
     }
     
     // Debug logging for spawn priority
     console.log(`Next spawn priority: ${spawnPriority || 'none'}, Total spawns: ${Memory.spawnSequence.totalSpawnCount}`);
-
     
     // Spawn the creep based on priority
     if (spawnPriority !== null) {
