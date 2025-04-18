@@ -299,7 +299,7 @@ module.exports.loop = function() {
             });
         }
         else if (spawnPriority === 'scout') {
-            spawnResult = Game.spawns['Spawn1'].spawnCreep([MOVE, MOVE, MOVE], newName, { 
+            spawnResult = Game.spawns['Spawn1'].spawnCreep([MOVE, MOVE, MOVE, MOVE, MOVE, MOVE], newName, { 
                 memory: { 
                     role: 'scout',
                     homeRoom: Game.spawns['Spawn1'].room.name
