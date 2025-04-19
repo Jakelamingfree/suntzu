@@ -11,13 +11,16 @@ var roleScout = {
             // Survey all important aspects of this room
             this.surveyRoom(creep);
 
-            // -------- path‑length cache for spawnManager --------
+           // -------- path‑length cache for spawnManager --------
             const home = Game.spawns['Spawn1'].pos;           // assumes single spawn
-            room.find(FIND_SOURCES).forEach(src => {
+            creep.room.find(FIND_SOURCES).forEach(src => {
                 const mem = Memory.sources[src.id] = Memory.sources[src.id] || {};
                 if (!mem.pathLen) {
-                    const ret = PathFinder.search(src.pos, { pos: home, range: 1 },
-                                                { maxOps: 2000, swampCost: 2 });
+                    const ret = PathFinder.search(
+                        src.pos,
+                        { pos: home, range: 1 },
+                        { maxOps: 2000, swampCost: 2 }
+                    );
                     if (!ret.incomplete) mem.pathLen = ret.path.length;
                 }
             });
