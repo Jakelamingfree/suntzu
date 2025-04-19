@@ -1,4 +1,4 @@
-// spawnManager.js – ring‑aware + never‑idle
+// spawnManager.js – ring‑aware + never‑idle
 // ------------------------------------------------------------
 //  * Bootstrap miner‑hauler logic
 //  * Fallback upgrader so spawn never sits idle at full energy
@@ -27,8 +27,23 @@ const BODY_TIERS = {
 };
 
 function chooseBody(role, cap) {
-  const tier = _.max(BODY_TIERS[role].filter(t => t.cost <= cap), 'cost');
-  return tier ? tier.parts.slice() : BODY_TIERS[role][0].parts.slice();
+  // Check if the role exists in BODY_TIERS first
+  if (!BODY_TIERS[role]) {
+    console.log(`WARNING: No body definition found for role: ${role}`);
+    return [WORK, CARRY, MOVE]; // Default fallback body
+  }
+
+  // Filter tiers that fit within the energy cap
+  const validTiers = BODY_TIERS[role].filter(t => t.cost <= cap);
+  
+  // If no valid tiers found, use the cheapest tier for this role
+  if (validTiers.length === 0) {
+    return BODY_TIERS[role][0].parts.slice();
+  }
+  
+  // Otherwise find the most expensive tier that fits
+  const tier = _.max(validTiers, t => t.cost);
+  return tier.parts.slice();
 }
 
 function haulersNeededFor(source) {
