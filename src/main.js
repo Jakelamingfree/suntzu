@@ -3,6 +3,7 @@ var roleHarvester = require('role.harvester');
 var roleUpgrader = require('role.upgrader');
 var roleHauler = require('role.hauler');
 var roleScout = require('role.scout');
+const spawnManager = require('spawnManager');
 
 // This function runs every tick
 module.exports.loop = function() {
@@ -199,6 +200,8 @@ module.exports.loop = function() {
     console.log(`Dead creeps awaiting replacement: H:${Memory.deadCreeps.harvester} Ha:${Memory.deadCreeps.hauler} U:${Memory.deadCreeps.upgrader} S:${Memory.deadCreeps.scout}`);
     console.log(`Expansion mode: ${Memory.gameState.expansionMode}, Safe sources: ${Memory.gameState.availableSources}`);
     
+    spawnManager.run(Game.spawns['Spawn1'].room);
+
     // Completely reworked spawn priority logic
     let spawnPriority = null;
     
