@@ -82,6 +82,9 @@ var roleScout = {
             Memory.rooms[creep.room.name].structuresSurveyed) {
             creep.memory.roomSurveyed = true;
         }
+        
+        enqueueNeighbors(creep.room.name,
+            (creep.memory.depth || 0) + 1);
     },
     
     surveySources: function(creep) {
@@ -389,5 +392,17 @@ var roleScout = {
         console.log(`🌍 Scout ${creep.name} reports all accessible rooms have been surveyed!`);
     }
 };
+
+function enqueueNeighbors(roomName, depth = 1) {
+    const exits = Game.map.describeExits(roomName);
+    for (const dir in exits) {
+        const target = exits[dir];
+        const q = Memory.scoutQueue = Memory.scoutQueue || [];
+        if (!Memory.rooms[target] && !q.find(r => r.name === target)) {
+            q.push({ name: target, depth });
+        }
+    }
+}
+
 
 module.exports = roleScout;

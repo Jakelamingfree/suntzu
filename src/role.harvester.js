@@ -118,7 +118,10 @@ var roleHarvester = {
                 // Check sources in this room
                 if (roomMemory.sources) {
                     for (let sourceId in roomMemory.sources) {
-                        const source = roomMemory.sources[sourceId];
+                        const sourceId = _.min(Memory.sources, s =>
+                            (s.miners || 0)                               // prefer sources with <2 miners
+                            + (s.home !== creep.memory.homeRoom ? 2 : 0)  // remote cost bump
+                        ).id;
                         
                         // Skip sources with long round trip times
                         if (source.roundTripTime && source.roundTripTime > 300) continue;

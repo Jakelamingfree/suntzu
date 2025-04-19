@@ -1,5 +1,9 @@
-// spawnManager.js – bootstrap‑aware version
+// spawnManager.js – ring‑aware + never‑idle
 // ------------------------------------------------------------
+//  * Bootstrap miner‑hauler logic
+//  * Fallback upgrader so spawn never sits idle at full energy
+// ------------------------------------------------------------
+
 const BODY_TIERS = {
   harvester: [
     { cost: 250, parts: [WORK, WORK, MOVE] },                               // 2W 1M
@@ -29,13 +33,13 @@ function chooseBody(role, cap) {
 
 function haulersNeededFor(source) {
   const mem = Memory.sources[source.id] || {};
-  const miners        = mem.miners || 0;     // later we’ll maintain this
-  const workPerMiner  = 2;                   // boot assumption
+  const miners        = mem.miners || 0;
+  const workPerMiner  = 2;
   const ept           = miners * workPerMiner;
   const dist          = mem.pathLen || 20;
   const roundTrip     = dist * 2;
   const flowNeeded    = ept * roundTrip;
-  const carryPerHauler = 4 * 50;             // 4 CARRY = 200
+  const carryPerHauler = 4 * 50;
   return Math.ceil(flowNeeded / carryPerHauler);
 }
 
@@ -56,57 +60,46 @@ function desiredCounts(room) {
     else                     desiredUpgraders = 1;
   }
 
-  const scoutQueue   = Memory.scoutQueue || [];
-  const desiredScouts = Math.min(3, scoutQueue.length || 1);
+  const q = Memory.scoutQueue || [];
+  const desiredScouts = Math.min(3, q.length || 1);
 
-  const miners    = _.filter(Game.creeps,
-                     c => c.memory.role === 'harvester' &&
-                          c.memory.homeRoom === room.name).length;
-  const haulers   = _.filter(Game.creeps,
-                     c => c.memory.role === 'hauler' &&
-                          c.memory.homeRoom === room.name).length;
-  const upgraders = _.filter(Game.creeps,
-                     c => c.memory.role === 'upgrader' &&
-                          c.memory.homeRoom === room.name).length;
-  const scouts    = _.filter(Game.creeps,
-                     c => c.memory.role === 'scout').length;
+  const miners    = _.filter(Game.creeps, c => c.memory.role === 'harvester' && c.memory.homeRoom === room.name).length;
+  const haulers   = _.filter(Game.creeps, c => c.memory.role === 'hauler'    && c.memory.homeRoom === room.name).length;
+  const upgraders = _.filter(Game.creeps, c => c.memory.role === 'upgrader'  && c.memory.homeRoom === room.name).length;
+  const scouts    = _.filter(Game.creeps, c => c.memory.role === 'scout').length;
 
-  return {
-    srcCount: sources.length,
-    desired: { miners: desiredHarvesters,
-               haulers: desiredHaulers,
-               upgraders: desiredUpgraders,
-               scouts: desiredScouts },
-    counts:  { miners, haulers, upgraders, scouts }
-  };
+  return { desired: { miners: desiredHarvesters, haulers: desiredHaulers, upgraders: desiredUpgraders, scouts: desiredScouts },
+           counts:  { miners, haulers, upgraders, scouts },
+           srcCount: sources.length };
 }
 
 function run(room) {
   const spawner = room.find(FIND_MY_SPAWNS)[0];
   if (!spawner || spawner.spawning) return;
 
-  const { srcCount, desired, counts } = desiredCounts(room);
+  const { desired, counts, srcCount } = desiredCounts(room);
 
-  const bootstrapHaulerNeeded =
-      counts.haulers === 0 && counts.miners > 0;   // NEW condition
+  // Bootstrap: ensure first hauler after first miner
+  const bootstrapHaulerNeeded = counts.haulers === 0 && counts.miners > 0;
 
   const queue = [
-    { role:'harvester', want: counts.miners    < desired.miners,
-                         prio: bootstrapHaulerNeeded ?  9 : 10 },
-    { role:'hauler',    want: counts.haulers   < desired.haulers,
-                         prio: bootstrapHaulerNeeded ? 11 :  9 },
-    { role:'scout',     want: counts.scouts    < desired.scouts,
-                         prio: 8  },
-    { role:'upgrader',  want: counts.upgraders < desired.upgraders,
-                         prio: 5  }
-  ].filter(i => i.want).sort((a,b)=>b.prio-a.prio);
+    { role:'harvester', want: counts.miners    < desired.miners,    prio: bootstrapHaulerNeeded ?  9 : 10 },
+    { role:'hauler',    want: counts.haulers   < desired.haulers,   prio: bootstrapHaulerNeeded ? 11 :  9 },
+    { role:'scout',     want: counts.scouts    < desired.scouts,    prio: 8 },
+    { role:'upgrader',  want: counts.upgraders < desired.upgraders, prio: 5 }
+  ].filter(i => i.want);
 
-  if (!queue.length) return;
+  // Fallback: if spawn full and queue empty, always add upgrader
+  if (!queue.length && spawner.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
+    queue.push({ role:'upgrader', want:true, prio:1 });
+  }
 
-  const role  = queue[0].role;
-  const body  = chooseBody(role, room.energyCapacityAvailable);
-  const name  = `${role}_${Game.time}`;
-  const mem   = { role, homeRoom: room.name };
+  if (!queue.length) return; // still nothing (rare)
+
+  const { role } = _.max(queue, 'prio');
+  const body = chooseBody(role, room.energyCapacityAvailable);
+  const name = `${role}_${Game.time}`;
+  const mem  = { role, homeRoom: room.name };
   if (role === 'harvester') mem.sourceId = null;
 
   const res = spawner.spawnCreep(body, name, { memory: mem });
