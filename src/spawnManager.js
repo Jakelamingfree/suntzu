@@ -88,7 +88,7 @@ function run(room) {
   const { srcCount, desired, counts } = desiredCounts(room);
 
   const bootstrapHaulerNeeded =
-        counts.miners >= srcCount && counts.haulers < srcCount;
+      counts.haulers === 0 && counts.miners > 0;   // NEW condition
 
   const queue = [
     { role:'harvester', want: counts.miners    < desired.miners,
